@@ -146,7 +146,7 @@ public sealed class MainWindow : Window
                 : $"Start daily###start-daily-{(byte)progress.Society.Id}";
             if (ImGui.Button(buttonLabel))
             {
-                this.automationStatus = this.automationService.StartNextAvailableDaily(progress.Society).Message;
+                this.automationStatus = this.automationService.AcceptAllAvailableDailies(progress.Society).Message;
                 InvalidatePlannerData();
             }
 
@@ -199,7 +199,7 @@ public sealed class MainWindow : Window
             var recommendation = GetRecommendedActionableRow();
             this.automationStatus = recommendation is null
                 ? "No recommended daily is currently startable."
-                : this.automationService.StartNextAvailableDaily(recommendation.Progress.Society).Message;
+                : this.automationService.AcceptAllAvailableDailies(recommendation.Progress.Society).Message;
             InvalidatePlannerData();
         }
 
