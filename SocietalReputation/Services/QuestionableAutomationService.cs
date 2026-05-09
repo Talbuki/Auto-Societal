@@ -20,6 +20,7 @@ public sealed class QuestionableAutomationService
     private readonly ICallGateSubscriber<string, bool> isQuestLocked;
     private readonly ICallGateSubscriber<string, bool> isReadyToAcceptQuest;
     private readonly ICallGateSubscriber<string, bool> isQuestAccepted;
+    private readonly ICallGateSubscriber<string, bool> isQuestComplete;
     private readonly ICallGateSubscriber<string, bool> isQuestUnobtainable;
 
     public QuestionableAutomationService(IDalamudPluginInterface pluginInterface)
@@ -30,6 +31,7 @@ public sealed class QuestionableAutomationService
         this.isQuestLocked = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestLocked");
         this.isReadyToAcceptQuest = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsReadyToAcceptQuest");
         this.isQuestAccepted = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestAccepted");
+        this.isQuestComplete = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestComplete");
         this.isQuestUnobtainable = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestUnobtainable");
     }
 
@@ -76,45 +78,79 @@ public sealed class QuestionableAutomationService
 
             while (true)
             {
-                var acceptedQuestCounts = GetAcceptedQuestCounts(society);
-                if (acceptedQuestCounts.AcceptedQuestCount >= PerSocietyDailyQuestLimit)
+                var acceptedQuestStatus = EvaluateAcceptedQuestStatus(society);
+                if (acceptedQuestStatus.HadQuestDataError)
                 {
-                    return acceptedThisRun > 0
-                        ? new AutomationResult(
-                            true,
-                            $"Accepted {acceptedThisRun} {society.Name} daily quest(s) and reached the society limit.",
-                            acceptedThisRun)
-                        : new AutomationResult(false, $"{society.Name} already has {acceptedQuestCounts.AcceptedQuestCount} accepted daily quest(s).");
+                    return new AutomationResult(false, QuestionableQuestDataError);
                 }
 
-                var readyQuestId = FindNextReadyQuestId(society);
-                if (readyQuestId == null)
+                var canAcceptMore = acceptedQuestStatus.AcceptedQuestCount < PerSocietyDailyQuestLimit;
+                var readyQuestId = canAcceptMore ? FindNextReadyQuestId(society) : null;
+                if (readyQuestId != null)
                 {
-                    return acceptedThisRun > 0
-                        ? new AutomationResult(true, $"Accepted {acceptedThisRun} {society.Name} daily quest(s).", acceptedThisRun)
-                        : new AutomationResult(false, $"No available {society.Name} daily quest was found.");
+                    var quest = readyQuestId.Value.ToString();
+                    if (!this.startQuest.InvokeFunc(quest))
+                    {
+                        return BuildAcceptanceFailureResult(
+                            society,
+                            acceptedThisRun,
+                            readyQuestId.Value,
+                            "Questionable could not start the ready quest.");
+                    }
+
+                    if (!WaitForQuestAcceptance(society, readyQuestId.Value, acceptedQuestStatus.AcceptedQuestCount))
+                    {
+                        return BuildAcceptanceFailureResult(
+                            society,
+                            acceptedThisRun,
+                            readyQuestId.Value,
+                            "Timed out waiting for the quest to be accepted.");
+                    }
+
+                    acceptedThisRun++;
+                    continue;
                 }
 
-                var quest = readyQuestId.Value.ToString();
-                if (!this.startQuest.InvokeFunc(quest))
+                if (acceptedQuestStatus.AcceptedQuestCount > 0 && !acceptedQuestStatus.AllAcceptedQuestsComplete)
                 {
-                    return BuildAcceptanceFailureResult(
-                        society,
-                        acceptedThisRun,
-                        readyQuestId.Value,
-                        "Questionable could not start the ready quest.");
+                    var questToResumeId = FindNextAcceptedIncompleteQuestId(society);
+                    if (questToResumeId == null)
+                    {
+                        return new AutomationResult(
+                            false,
+                            $"{society.Name} has accepted quests in progress, but none could be resumed.",
+                            acceptedQuestStatus.AcceptedQuestCount);
+                    }
+
+                    if (!this.startQuest.InvokeFunc(questToResumeId.Value.ToString()))
+                    {
+                        return BuildAcceptanceFailureResult(
+                            society,
+                            acceptedThisRun,
+                            questToResumeId.Value,
+                            "Questionable could not resume the accepted quest.");
+                    }
+
+                    return new AutomationResult(
+                        true,
+                        BuildAutomationProgressMessage(society, acceptedQuestStatus, acceptedThisRun, "Continuing accepted quests before turn-in."),
+                        acceptedQuestStatus.AcceptedQuestCount);
                 }
 
-                if (!WaitForQuestAcceptance(society, readyQuestId.Value, acceptedQuestCounts.AcceptedQuestCount))
+                if (acceptedQuestStatus.AcceptedQuestCount > 0 && acceptedQuestStatus.AllAcceptedQuestsComplete)
                 {
-                    return BuildAcceptanceFailureResult(
-                        society,
-                        acceptedThisRun,
-                        readyQuestId.Value,
-                        "Timed out waiting for the quest to be accepted.");
+                    return new AutomationResult(
+                        false,
+                        $"{society.Name} accepted quests are complete and ready to hand in.",
+                        acceptedQuestStatus.AcceptedQuestCount);
                 }
 
-                acceptedThisRun++;
+                return acceptedThisRun > 0
+                    ? new AutomationResult(
+                        true,
+                        BuildAutomationProgressMessage(society, acceptedQuestStatus, acceptedThisRun, "Finish accepted quests before turn-in."),
+                        acceptedQuestStatus.AcceptedQuestCount + acceptedThisRun)
+                    : new AutomationResult(false, $"No available {society.Name} daily quest was found.");
             }
         }
         catch (IpcError)
@@ -135,6 +171,7 @@ public sealed class QuestionableAutomationService
                 completedQuestCount,
                 0,
                 false,
+                false,
                 IsAvailable(),
                 "No daily quest range configured.");
         }
@@ -147,6 +184,7 @@ public sealed class QuestionableAutomationService
                 acceptedQuestCount,
                 completedQuestCount,
                 0,
+                false,
                 acceptedQuestCount > 0,
                 false,
                 acceptedQuestCount > 0
@@ -156,9 +194,10 @@ public sealed class QuestionableAutomationService
 
         try
         {
-            var readyQuestCount = 0;
+            var acceptedQuestStatus = EvaluateAcceptedQuestStatus(society);
+            var readyQuestCount = acceptedQuestStatus.ReadyQuestCount;
             var blockedQuestCount = 0;
-            var hadQuestDataError = false;
+            var hadQuestDataError = acceptedQuestStatus.HadQuestDataError;
 
             for (ushort questId = society.DailyQuestStart; questId <= society.DailyQuestEnd; questId++)
             {
@@ -192,20 +231,12 @@ public sealed class QuestionableAutomationService
                     continue;
                 }
 
-                if (!TryInvokeQuestCheck(this.isReadyToAcceptQuest, quest, out var isReadyToAccept))
-                {
-                    hadQuestDataError = true;
-                    continue;
-                }
-
-                if (isReadyToAccept)
-                {
-                    readyQuestCount++;
-                }
             }
 
-            var readiness = acceptedQuestCount > 0
-                ? DailyQuestReadiness.InProgress
+            var readiness = acceptedQuestStatus.AcceptedQuestCount > 0
+                ? acceptedQuestStatus.AllAcceptedQuestsComplete
+                    ? DailyQuestReadiness.ReadyToTurnIn
+                    : DailyQuestReadiness.InProgress
                 : readyQuestCount > 0
                     ? DailyQuestReadiness.Ready
                     : blockedQuestCount > 0
@@ -215,12 +246,13 @@ public sealed class QuestionableAutomationService
             return new DailyQuestStatus(
                 readiness,
                 readyQuestCount,
-                acceptedQuestCount,
-                completedQuestCount,
+                acceptedQuestStatus.AcceptedQuestCount,
+                acceptedQuestStatus.CompletedQuestCount,
                 blockedQuestCount,
-                readyQuestCount > 0 || acceptedQuestCount > 0,
+                acceptedQuestStatus.AllAcceptedQuestsComplete,
+                acceptedQuestStatus.AcceptedQuestCount > 0 && !acceptedQuestStatus.AllAcceptedQuestsComplete || readyQuestCount > 0,
                 true,
-                BuildDailyStatusMessage(readyQuestCount, acceptedQuestCount, completedQuestCount, blockedQuestCount, hadQuestDataError));
+                BuildDailyStatusMessage(acceptedQuestStatus, blockedQuestCount));
         }
         catch (IpcError)
         {
@@ -230,6 +262,7 @@ public sealed class QuestionableAutomationService
                 acceptedQuestCount,
                 completedQuestCount,
                 0,
+                false,
                 acceptedQuestCount > 0,
                 false,
                 "Questionable IPC is unavailable.");
@@ -242,6 +275,7 @@ public sealed class QuestionableAutomationService
                 acceptedQuestCount,
                 completedQuestCount,
                 0,
+                false,
                 acceptedQuestCount > 0,
                 false,
                 QuestionableQuestDataError);
@@ -287,24 +321,33 @@ public sealed class QuestionableAutomationService
         }
     }
 
-    private static string BuildDailyStatusMessage(int readyQuestCount, int acceptedQuestCount, int completedQuestCount, int blockedQuestCount, bool hadQuestDataError)
+    private static string BuildDailyStatusMessage(AcceptedQuestStatus acceptedQuestStatus, int blockedQuestCount)
     {
-        if (acceptedQuestCount > 0)
+        if (acceptedQuestStatus.AcceptedQuestCount > 0)
         {
-            if (completedQuestCount > 0)
+            if (acceptedQuestStatus.AllAcceptedQuestsComplete)
             {
-                return $"{completedQuestCount}/{acceptedQuestCount} accepted quest(s) completed.";
+                return acceptedQuestStatus.ReadyQuestCount > 0
+                    ? $"{acceptedQuestStatus.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, all complete, ready to hand in after remaining pickups."
+                    : $"{acceptedQuestStatus.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, all complete, ready to hand in.";
             }
 
-            return $"{acceptedQuestCount} accepted quest(s) in progress.";
+            if (acceptedQuestStatus.CompletedQuestCount > 0)
+            {
+                return $"{acceptedQuestStatus.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, {acceptedQuestStatus.CompletedQuestCount} complete, keep going.";
+            }
+
+            return acceptedQuestStatus.ReadyQuestCount > 0
+                ? $"{acceptedQuestStatus.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, finish remaining objectives before turn-in."
+                : $"{acceptedQuestStatus.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, keep working objectives.";
         }
 
-        if (readyQuestCount > 0)
+        if (acceptedQuestStatus.ReadyQuestCount > 0)
         {
-            return $"{readyQuestCount} quest(s) ready to start.";
+            return $"{acceptedQuestStatus.ReadyQuestCount} quest(s) ready to start.";
         }
 
-        if (hadQuestDataError)
+        if (acceptedQuestStatus.HadQuestDataError)
         {
             return QuestionableQuestDataError;
         }
@@ -378,6 +421,30 @@ public sealed class QuestionableAutomationService
         return null;
     }
 
+    private ushort? FindNextAcceptedIncompleteQuestId(SocietyInfo society)
+    {
+        for (ushort questId = society.DailyQuestStart; questId <= society.DailyQuestEnd; questId++)
+        {
+            var quest = questId.ToString();
+            if (!TryInvokeQuestCheck(this.isQuestAccepted, quest, out var isAccepted) || !isAccepted)
+            {
+                continue;
+            }
+
+            if (!TryInvokeQuestCheck(this.isQuestComplete, quest, out var isComplete))
+            {
+                continue;
+            }
+
+            if (!isComplete)
+            {
+                return questId;
+            }
+        }
+
+        return null;
+    }
+
     private bool WaitForQuestAcceptance(SocietyInfo society, ushort questId, int acceptedQuestCountBeforeStart)
     {
         var quest = questId.ToString();
@@ -441,4 +508,72 @@ public sealed class QuestionableAutomationService
 
         return (acceptedQuestCount, completedQuestCount);
     }
+
+    private AcceptedQuestStatus EvaluateAcceptedQuestStatus(SocietyInfo society)
+    {
+        var acceptedQuestCount = 0;
+        var completedQuestCount = 0;
+        var readyQuestCount = 0;
+        var hadQuestDataError = false;
+
+        for (ushort questId = society.DailyQuestStart; questId <= society.DailyQuestEnd; questId++)
+        {
+            var quest = questId.ToString();
+            if (!TryInvokeQuestCheck(this.isQuestAccepted, quest, out var isAccepted))
+            {
+                hadQuestDataError = true;
+                continue;
+            }
+
+            if (isAccepted)
+            {
+                acceptedQuestCount++;
+                if (!TryInvokeQuestCheck(this.isQuestComplete, quest, out var isComplete))
+                {
+                    hadQuestDataError = true;
+                    continue;
+                }
+
+                if (isComplete)
+                {
+                    completedQuestCount++;
+                }
+
+                continue;
+            }
+
+            if (!TryInvokeQuestCheck(this.isReadyToAcceptQuest, quest, out var isReadyToAccept))
+            {
+                hadQuestDataError = true;
+                continue;
+            }
+
+            if (isReadyToAccept)
+            {
+                readyQuestCount++;
+            }
+        }
+
+        return new AcceptedQuestStatus(
+            acceptedQuestCount,
+            completedQuestCount,
+            readyQuestCount,
+            acceptedQuestCount > 0 && completedQuestCount >= acceptedQuestCount,
+            hadQuestDataError);
+    }
+
+    private static string BuildAutomationProgressMessage(SocietyInfo society, AcceptedQuestStatus acceptedQuestStatus, int acceptedThisRun, string suffix)
+    {
+        var acceptedCount = acceptedQuestStatus.AcceptedQuestCount + acceptedThisRun;
+        return acceptedThisRun > 0
+            ? $"Accepted {acceptedThisRun} {society.Name} daily quest(s). {acceptedCount}/{PerSocietyDailyQuestLimit} accepted total. {suffix}"
+            : $"{society.Name}: {acceptedCount}/{PerSocietyDailyQuestLimit} accepted. {suffix}";
+    }
+
+    private sealed record AcceptedQuestStatus(
+        int AcceptedQuestCount,
+        int CompletedQuestCount,
+        int ReadyQuestCount,
+        bool AllAcceptedQuestsComplete,
+        bool HadQuestDataError);
 }

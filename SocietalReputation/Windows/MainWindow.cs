@@ -135,8 +135,8 @@ public sealed class MainWindow : Window
             }
             else
             {
-                ImGui.TextUnformatted($"{progress.AcceptedDailyQuestCount}/{progress.DailyQuestAllowanceTotal} accepted");
-                ImGui.TextDisabled($"{progress.CompletedDailyQuestCount} completed, {dailyStatus.ReadyQuestCount} ready, {dailyStatus.BlockedQuestCount} blocked");
+                ImGui.TextUnformatted($"{dailyStatus.AcceptedQuestCount}/{progress.DailyQuestAllowanceTotal} accepted");
+                ImGui.TextDisabled(BuildDailyBreakdownText(dailyStatus));
             }
 
             ImGui.TableNextColumn();
@@ -146,9 +146,13 @@ public sealed class MainWindow : Window
                 ImGui.BeginDisabled();
             }
 
-            var buttonLabel = progress.AcceptedDailyQuestCount > 0
-                ? $"Resume daily###start-daily-{(byte)progress.Society.Id}"
-                : $"Start daily###start-daily-{(byte)progress.Society.Id}";
+            var buttonLabel = dailyStatus.Readiness switch
+            {
+                DailyQuestReadiness.InProgress => $"Continue daily###start-daily-{(byte)progress.Society.Id}",
+                DailyQuestReadiness.ReadyToTurnIn => $"Hand-in ready###start-daily-{(byte)progress.Society.Id}",
+                _ when progress.AcceptedDailyQuestCount > 0 => $"Resume daily###start-daily-{(byte)progress.Society.Id}",
+                _ => $"Start daily###start-daily-{(byte)progress.Society.Id}",
+            };
             if (ImGui.Button(buttonLabel))
             {
                 this.automationStatus = this.automationService.AcceptAllAvailableDailies(progress.Society).Message;
@@ -253,6 +257,20 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled(this.cachedRecommendation.Reason);
         ImGui.TextDisabled(this.automationStatus);
         ImGui.Separator();
+    }
+
+    private static string BuildDailyBreakdownText(DailyQuestStatus dailyStatus)
+    {
+        return dailyStatus.Readiness switch
+        {
+            DailyQuestReadiness.ReadyToTurnIn => dailyStatus.ReadyQuestCount > 0
+                ? $"{dailyStatus.CompletedQuestCount} complete, {dailyStatus.ReadyQuestCount} still ready to accept, hand-in after pickups"
+                : $"{dailyStatus.CompletedQuestCount} complete, ready to hand in",
+            DailyQuestReadiness.InProgress => dailyStatus.CompletedQuestCount > 0
+                ? $"{dailyStatus.CompletedQuestCount} complete, keep going"
+                : "finish remaining objectives",
+            _ => $"{dailyStatus.CompletedQuestCount} completed, {dailyStatus.ReadyQuestCount} ready, {dailyStatus.BlockedQuestCount} blocked",
+        };
     }
 
     private void DrawDiagnosticsPanel()

@@ -6,6 +6,7 @@ public enum DailyQuestReadiness
     Unavailable,
     LockedOrUnavailable,
     InProgress,
+    ReadyToTurnIn,
     Ready,
     NoneAvailable,
 }
@@ -16,6 +17,7 @@ public sealed record DailyQuestStatus(
     int AcceptedQuestCount,
     int CompletedQuestCount,
     int BlockedQuestCount,
+    bool AllAcceptedQuestsComplete,
     bool CanStartNextQuest,
     bool IsAutomationAvailable,
     string StatusMessage)
