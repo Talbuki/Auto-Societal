@@ -207,6 +207,18 @@ public sealed class QuestionableAutomationService
                 false,
                 "Questionable IPC is unavailable.");
         }
+        catch (Exception)
+        {
+            return new DailyQuestStatus(
+                DailyQuestReadiness.Unavailable,
+                0,
+                acceptedQuestCount,
+                completedQuestCount,
+                0,
+                acceptedQuestCount > 0,
+                false,
+                QuestionableQuestDataError);
+        }
     }
 
     public AutomationResult StartFirstAvailable(IEnumerable<SocietyInfo> societies, string sourceLabel)
@@ -293,6 +305,11 @@ public sealed class QuestionableAutomationService
             return false;
         }
         catch (KeyNotFoundException)
+        {
+            result = false;
+            return false;
+        }
+        catch (Exception)
         {
             result = false;
             return false;
