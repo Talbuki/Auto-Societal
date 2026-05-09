@@ -10,7 +10,7 @@ public sealed class ReputationService
     private const int PerSocietyDailyQuestLimit = 3;
     private const int TotalDailyAllowances = 12;
 
-    private readonly IReadOnlyList<ReputationRank> standardRanks =
+    private static readonly ReputationRank[] StandardRanks =
     [
         new("Locked", 0, 1),
         new("Neutral", 0, 150),
@@ -24,59 +24,63 @@ public sealed class ReputationService
         new("Allied", 0, 0),
     ];
 
-    private readonly IReadOnlyList<SocietyInfo> societies;
+    private static readonly ReputationRank ArrAlliedRank = new("Allied", 0, 0);
 
-    public ReputationService()
-    {
-        this.societies =
-        [
-            CreateSociety(EAlliedSociety.Amaljaa, "Amalj'aa", "A Realm Reborn", "Combat", true, 1222, 1251),
-            CreateSociety(EAlliedSociety.Sylphs, "Sylphs", "A Realm Reborn", "Combat", true, 1257, 1286),
-            CreateSociety(EAlliedSociety.Kobolds, "Kobolds", "A Realm Reborn", "Combat", true, 1325, 1373),
-            CreateSociety(EAlliedSociety.Sahagin, "Sahagin", "A Realm Reborn", "Combat", true),
-            CreateSociety(EAlliedSociety.Ixal, "Ixali", "A Realm Reborn", "Crafting", true),
-            CreateSociety(EAlliedSociety.VanuVanu, "Vanu Vanu", "Heavensward", "Combat", false, 2171, 2200),
-            CreateSociety(EAlliedSociety.Vath, "Vath", "Heavensward", "Combat", false, 2261, 2280),
-            CreateSociety(EAlliedSociety.Moogles, "Moogles", "Heavensward", "Crafting", false, 2290, 2319),
-            CreateSociety(EAlliedSociety.Kojin, "Kojin", "Stormblood", "Combat", false, 2979, 3002),
-            CreateSociety(EAlliedSociety.Ananta, "Ananta", "Stormblood", "Combat", false, 3042, 3069),
-            CreateSociety(EAlliedSociety.Namazu, "Namazu", "Stormblood", "Crafting/Gathering", false, 3103, 3130),
-            CreateSociety(EAlliedSociety.Pixies, "Pixies", "Shadowbringers", "Combat", false, 3689, 3716),
-            CreateSociety(EAlliedSociety.Qitari, "Qitari", "Shadowbringers", "Gathering", false, 3806, 3833),
-            CreateSociety(EAlliedSociety.Dwarves, "Dwarves", "Shadowbringers", "Crafting", false, 3902, 3929),
-            CreateSociety(EAlliedSociety.Arkasodara, "Arkasodara", "Endwalker", "Combat", false, 4551, 4578),
-            CreateSociety(EAlliedSociety.Omicrons, "Omicrons", "Endwalker", "Gathering", false, 4607, 4634),
-            CreateSociety(EAlliedSociety.Loporrits, "Loporrits", "Endwalker", "Crafting", false, 4687, 4714),
-            CreateSociety(EAlliedSociety.Pelupelu, "Pelupelu", "Dawntrail", "Combat", false, 5199, 5226),
-            CreateSociety(EAlliedSociety.MamoolJa, "Mamool Ja", "Dawntrail", "Gathering", false, 5261, 5288),
-            CreateSociety(EAlliedSociety.YokHuy, "Yok Huy", "Dawntrail", "Crafting", false, 5336, 5363),
-        ];
-    }
+    private static readonly SocietyInfo[] Societies =
+    [
+        CreateSociety(EAlliedSociety.Amaljaa, "Amalj'aa", "A Realm Reborn", "Combat", true, 1222, 1251),
+        CreateSociety(EAlliedSociety.Sylphs, "Sylphs", "A Realm Reborn", "Combat", true, 1257, 1286),
+        CreateSociety(EAlliedSociety.Kobolds, "Kobolds", "A Realm Reborn", "Combat", true, 1325, 1373),
+        CreateSociety(EAlliedSociety.Sahagin, "Sahagin", "A Realm Reborn", "Combat", true),
+        CreateSociety(EAlliedSociety.Ixal, "Ixali", "A Realm Reborn", "Crafting", true),
+        CreateSociety(EAlliedSociety.VanuVanu, "Vanu Vanu", "Heavensward", "Combat", false, 2171, 2200),
+        CreateSociety(EAlliedSociety.Vath, "Vath", "Heavensward", "Combat", false, 2261, 2280),
+        CreateSociety(EAlliedSociety.Moogles, "Moogles", "Heavensward", "Crafting", false, 2290, 2319),
+        CreateSociety(EAlliedSociety.Kojin, "Kojin", "Stormblood", "Combat", false, 2979, 3002),
+        CreateSociety(EAlliedSociety.Ananta, "Ananta", "Stormblood", "Combat", false, 3042, 3069),
+        CreateSociety(EAlliedSociety.Namazu, "Namazu", "Stormblood", "Crafting/Gathering", false, 3103, 3130),
+        CreateSociety(EAlliedSociety.Pixies, "Pixies", "Shadowbringers", "Combat", false, 3689, 3716),
+        CreateSociety(EAlliedSociety.Qitari, "Qitari", "Shadowbringers", "Gathering", false, 3806, 3833),
+        CreateSociety(EAlliedSociety.Dwarves, "Dwarves", "Shadowbringers", "Crafting", false, 3902, 3929),
+        CreateSociety(EAlliedSociety.Arkasodara, "Arkasodara", "Endwalker", "Combat", false, 4551, 4578),
+        CreateSociety(EAlliedSociety.Omicrons, "Omicrons", "Endwalker", "Gathering", false, 4607, 4634),
+        CreateSociety(EAlliedSociety.Loporrits, "Loporrits", "Endwalker", "Crafting", false, 4687, 4714),
+        CreateSociety(EAlliedSociety.Pelupelu, "Pelupelu", "Dawntrail", "Combat", false, 5199, 5226),
+        CreateSociety(EAlliedSociety.MamoolJa, "Mamool Ja", "Dawntrail", "Gathering", false, 5261, 5288),
+        CreateSociety(EAlliedSociety.YokHuy, "Yok Huy", "Dawntrail", "Crafting", false, 5336, 5363),
+    ];
 
     public unsafe ReputationSnapshot GetSnapshot()
     {
+        var progress = new SocietyProgress[Societies.Length];
         var questManager = QuestManager.Instance();
         if (questManager == null)
         {
-            return new ReputationSnapshot(
-                this.societies.Select(CreateLockedProgress).ToArray(),
-                0,
-                TotalDailyAllowances,
-                0);
+            for (var i = 0; i < Societies.Length; i++)
+            {
+                progress[i] = CreateLockedProgress(Societies[i]);
+            }
+
+            return new ReputationSnapshot(progress, 0, TotalDailyAllowances, 0);
+        }
+
+        for (var i = 0; i < Societies.Length; i++)
+        {
+            progress[i] = CreateProgress(questManager, Societies[i]);
         }
 
         return new ReputationSnapshot(
-            this.societies.Select(society => CreateProgress(questManager, society)).ToArray(),
+            progress,
             (int)questManager->GetBeastTribeAllowance(),
             TotalDailyAllowances,
             questManager->NumAcceptedDailyQuests);
     }
 
-    private SocietyProgress CreateLockedProgress(SocietyInfo society)
+    private static SocietyProgress CreateLockedProgress(SocietyInfo society)
     {
         return new SocietyProgress(
             society,
-            this.standardRanks[0],
+            StandardRanks[0],
             0,
             false,
             false,
@@ -118,7 +122,7 @@ public sealed class ReputationService
             PerSocietyDailyQuestLimit);
     }
 
-    private unsafe (int AcceptedDailyQuestCount, int CompletedDailyQuestCount) GetDailyQuestCounts(QuestManager* questManager, SocietyInfo society)
+    private static unsafe (int AcceptedDailyQuestCount, int CompletedDailyQuestCount) GetDailyQuestCounts(QuestManager* questManager, SocietyInfo society)
     {
         if (society.DailyQuestStart == 0 || society.DailyQuestEnd == 0)
         {
@@ -145,22 +149,22 @@ public sealed class ReputationService
         return (accepted, completed);
     }
 
-    private ReputationRank GetRankInfo(SocietyInfo society, byte rank)
+    private static ReputationRank GetRankInfo(SocietyInfo society, byte rank)
     {
         if (society.UsesArrAlliedRank && rank == 8)
         {
-            return new ReputationRank("Allied", 0, 0);
+            return ArrAlliedRank;
         }
 
-        if (rank < this.standardRanks.Count)
+        if (rank < StandardRanks.Length)
         {
-            return this.standardRanks[rank];
+            return StandardRanks[rank];
         }
 
-        return this.standardRanks[^1];
+        return StandardRanks[^1];
     }
 
-    private SocietyInfo CreateSociety(
+    private static SocietyInfo CreateSociety(
         EAlliedSociety id,
         string name,
         string expansion,
@@ -169,6 +173,6 @@ public sealed class ReputationService
         ushort dailyQuestStart = 0,
         ushort dailyQuestEnd = 0)
     {
-        return new SocietyInfo(id, name, expansion, activity, usesArrAlliedRank, dailyQuestStart, dailyQuestEnd, this.standardRanks);
+        return new SocietyInfo(id, name, expansion, activity, usesArrAlliedRank, dailyQuestStart, dailyQuestEnd, StandardRanks);
     }
 }
