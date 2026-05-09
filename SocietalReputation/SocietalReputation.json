@@ -2,11 +2,12 @@
   "Name": "Societal Reputation",
   "Author": "Talbuki",
   "Punchline": "Track Allied Society reputation progress at a glance.",
-  "Description": "A Dalamud plugin template for viewing Allied Society reputation, rank progress, and daily quest status. This scaffold uses sample data behind a replaceable service boundary so real game-data integration can be added later.",
+  "Description": "Track Allied Society reputation, rank progress, daily quest readiness, and achievement milestones in one planner-focused Dalamud window. Optional Questionable integration can help start available society dailies.",
   "RepoUrl": "https://github.com/Talbuki/Auto-Societal",
   "Tags": [
     "society",
     "reputation",
-    "allied-society"
+    "allied-society",
+    "questionable"
   ]
 }
