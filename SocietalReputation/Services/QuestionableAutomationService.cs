@@ -3,11 +3,13 @@ using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Ipc.Exceptions;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using SocietalReputation.Models;
+using System.Reflection;
 
 namespace SocietalReputation.Services;
 
 public sealed class QuestionableAutomationService
 {
+    private const string QuestionableQuestDataError = "Questionable returned invalid quest data for one or more dailies.";
     private readonly ICallGateSubscriber<bool> isRunning;
     private readonly ICallGateSubscriber<string, bool> startQuest;
     private readonly ICallGateSubscriber<string, bool> stop;
@@ -64,13 +66,19 @@ public sealed class QuestionableAutomationService
             for (var questId = society.DailyQuestStart; questId <= society.DailyQuestEnd; questId++)
             {
                 var quest = questId.ToString();
-                if (this.isQuestUnobtainable.InvokeFunc(quest) ||
-                    this.isQuestLocked.InvokeFunc(quest))
+                if (TryInvokeQuestCheck(this.isQuestUnobtainable, quest, out var isUnobtainable) && isUnobtainable ||
+                    TryInvokeQuestCheck(this.isQuestLocked, quest, out var isLocked) && isLocked)
                 {
                     continue;
                 }
 
-                if (!this.isReadyToAcceptQuest.InvokeFunc(quest) && !this.isQuestAccepted.InvokeFunc(quest))
+                if (!TryInvokeQuestCheck(this.isReadyToAcceptQuest, quest, out var isReadyToAccept) ||
+                    !TryInvokeQuestCheck(this.isQuestAccepted, quest, out var isAccepted))
+                {
+                    continue;
+                }
+
+                if (!isReadyToAccept && !isAccepted)
                 {
                     continue;
                 }
@@ -123,22 +131,47 @@ public sealed class QuestionableAutomationService
         {
             var readyQuestCount = 0;
             var blockedQuestCount = 0;
+            var hadQuestDataError = false;
 
             for (ushort questId = society.DailyQuestStart; questId <= society.DailyQuestEnd; questId++)
             {
                 var quest = questId.ToString();
-                if (this.isQuestAccepted.InvokeFunc(quest))
+                if (!TryInvokeQuestCheck(this.isQuestAccepted, quest, out var isAccepted))
+                {
+                    hadQuestDataError = true;
+                    continue;
+                }
+
+                if (isAccepted)
                 {
                     continue;
                 }
 
-                if (this.isQuestUnobtainable.InvokeFunc(quest) || this.isQuestLocked.InvokeFunc(quest))
+                if (!TryInvokeQuestCheck(this.isQuestUnobtainable, quest, out var isUnobtainable))
+                {
+                    hadQuestDataError = true;
+                    continue;
+                }
+
+                if (!TryInvokeQuestCheck(this.isQuestLocked, quest, out var isLocked))
+                {
+                    hadQuestDataError = true;
+                    continue;
+                }
+
+                if (isUnobtainable || isLocked)
                 {
                     blockedQuestCount++;
                     continue;
                 }
 
-                if (this.isReadyToAcceptQuest.InvokeFunc(quest))
+                if (!TryInvokeQuestCheck(this.isReadyToAcceptQuest, quest, out var isReadyToAccept))
+                {
+                    hadQuestDataError = true;
+                    continue;
+                }
+
+                if (isReadyToAccept)
                 {
                     readyQuestCount++;
                 }
@@ -160,7 +193,7 @@ public sealed class QuestionableAutomationService
                 blockedQuestCount,
                 readyQuestCount > 0 || acceptedQuestCount > 0,
                 true,
-                BuildDailyStatusMessage(readyQuestCount, acceptedQuestCount, completedQuestCount, blockedQuestCount));
+                BuildDailyStatusMessage(readyQuestCount, acceptedQuestCount, completedQuestCount, blockedQuestCount, hadQuestDataError));
         }
         catch (IpcError)
         {
@@ -215,7 +248,7 @@ public sealed class QuestionableAutomationService
         }
     }
 
-    private static string BuildDailyStatusMessage(int readyQuestCount, int acceptedQuestCount, int completedQuestCount, int blockedQuestCount)
+    private static string BuildDailyStatusMessage(int readyQuestCount, int acceptedQuestCount, int completedQuestCount, int blockedQuestCount, bool hadQuestDataError)
     {
         if (acceptedQuestCount > 0)
         {
@@ -232,9 +265,38 @@ public sealed class QuestionableAutomationService
             return $"{readyQuestCount} quest(s) ready to start.";
         }
 
+        if (hadQuestDataError)
+        {
+            return QuestionableQuestDataError;
+        }
+
         return blockedQuestCount > 0
             ? $"{blockedQuestCount} quest(s) locked or unavailable."
             : "No daily quest available.";
+    }
+
+    private static bool TryInvokeQuestCheck(ICallGateSubscriber<string, bool> subscriber, string quest, out bool result)
+    {
+        try
+        {
+            result = subscriber.InvokeFunc(quest);
+            return true;
+        }
+        catch (IpcError)
+        {
+            result = false;
+            return false;
+        }
+        catch (TargetInvocationException)
+        {
+            result = false;
+            return false;
+        }
+        catch (KeyNotFoundException)
+        {
+            result = false;
+            return false;
+        }
     }
 
     private static unsafe (int AcceptedQuestCount, int CompletedQuestCount) GetAcceptedQuestCounts(SocietyInfo society)
