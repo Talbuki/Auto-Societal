@@ -13,18 +13,22 @@ public sealed class Plugin : IDalamudPlugin
     private readonly WindowSystem windowSystem = new("SocietalReputation");
     private readonly ReputationService reputationService;
     private readonly QuestionableAutomationService automationService;
+    private readonly AchievementTrackingService achievementTrackingService;
     private readonly MainWindow mainWindow;
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
-        ICommandManager commandManager)
+        ICommandManager commandManager,
+        IDataManager dataManager,
+        IUnlockState unlockState)
     {
         this.pluginInterface = pluginInterface;
 
         Configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.reputationService = new ReputationService();
         this.automationService = new QuestionableAutomationService(pluginInterface);
-        this.mainWindow = new MainWindow(Configuration, pluginInterface, this.reputationService, this.automationService)
+        this.achievementTrackingService = new AchievementTrackingService(dataManager, unlockState);
+        this.mainWindow = new MainWindow(Configuration, pluginInterface, this.reputationService, this.automationService, this.achievementTrackingService)
         {
             IsOpen = Configuration.IsMainWindowOpen,
         };

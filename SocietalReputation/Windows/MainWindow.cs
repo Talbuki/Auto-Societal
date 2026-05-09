@@ -13,9 +13,11 @@ public sealed class MainWindow : Window
     private readonly IDalamudPluginInterface pluginInterface;
     private readonly ReputationService reputationService;
     private readonly QuestionableAutomationService automationService;
+    private readonly AchievementTrackingService achievementTrackingService;
     private string automationStatus = "Automation uses Questionable IPC when available.";
     private IReadOnlyList<SocietyPlannerRow> cachedRows = [];
     private ReputationSnapshot? cachedSnapshot;
+    private AchievementSnapshot? cachedAchievementSnapshot;
     private PlannerRecommendation cachedRecommendation = new(null, "No recommendation yet.", "Open the planner to refresh recommendations.");
     private DateTime lastRefreshUtc = DateTime.MinValue;
     private const float RefreshIntervalSeconds = 1f;
@@ -24,13 +26,15 @@ public sealed class MainWindow : Window
         Configuration configuration,
         IDalamudPluginInterface pluginInterface,
         ReputationService reputationService,
-        QuestionableAutomationService automationService)
+        QuestionableAutomationService automationService,
+        AchievementTrackingService achievementTrackingService)
         : base("Societal Reputation###SocietalReputationMainWindow")
     {
         this.configuration = configuration;
         this.pluginInterface = pluginInterface;
         this.reputationService = reputationService;
         this.automationService = automationService;
+        this.achievementTrackingService = achievementTrackingService;
 
         SizeConstraints = new WindowSizeConstraints
         {
@@ -80,6 +84,7 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(progress.Society.Name);
             ImGui.TextDisabled(progress.Society.Expansion);
+            ImGui.TextDisabled(row.AchievementStatus.StatusMessage);
             if (ReferenceEquals(this.cachedRecommendation.Row, row))
             {
                 ImGui.TextDisabled("Recommended next");
@@ -228,12 +233,22 @@ public sealed class MainWindow : Window
             return;
         }
 
+        var achievementSnapshot = this.cachedAchievementSnapshot;
         var automationState = this.automationService.IsAvailable()
             ? this.automationService.IsRunning() ? "Questionable: running" : "Questionable: ready"
             : "Questionable: unavailable";
         ImGui.TextDisabled(automationState);
         ImGui.TextUnformatted($"Tribal allowances: {snapshot.RemainingAllowances}/{snapshot.TotalAllowances} remaining");
         ImGui.TextDisabled($"{snapshot.AcceptedDailyQuests} accepted daily quest(s) active across all societies.");
+        if (achievementSnapshot != null)
+        {
+            ImGui.TextUnformatted($"Relevant achievements: {achievementSnapshot.CompletedAchievementCount}/{achievementSnapshot.TotalAchievementCount} complete");
+            ImGui.TextDisabled($"{achievementSnapshot.FullyCompletedSocietyCount}/{snapshot.Progress.Count} societies have all tracked milestones complete.");
+            if (!achievementSnapshot.IsAchievementListLoaded)
+            {
+                ImGui.TextDisabled(achievementSnapshot.StatusMessage);
+            }
+        }
         ImGui.TextUnformatted(this.cachedRecommendation.Summary);
         ImGui.TextDisabled(this.cachedRecommendation.Reason);
         ImGui.TextDisabled(this.automationStatus);
@@ -275,11 +290,16 @@ public sealed class MainWindow : Window
         }
 
         var snapshot = this.reputationService.GetSnapshot();
+        var achievementSnapshot = this.achievementTrackingService.GetSnapshot(snapshot.Progress.Select(progress => progress.Society));
         var rows = snapshot.Progress
-            .Select(progress => new SocietyPlannerRow(progress, this.automationService.GetDailyQuestStatus(progress.Society)))
+            .Select(progress => new SocietyPlannerRow(
+                progress,
+                this.automationService.GetDailyQuestStatus(progress.Society),
+                achievementSnapshot.GetStatus(progress.Society.Id)))
             .ToArray();
 
         this.cachedSnapshot = snapshot;
+        this.cachedAchievementSnapshot = achievementSnapshot;
         this.cachedRows = rows;
         this.cachedRecommendation = BuildRecommendation(rows);
         this.lastRefreshUtc = DateTime.UtcNow;
