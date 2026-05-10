@@ -32,6 +32,7 @@ public sealed class MainWindow : Window
     private bool lastKnownOpenState;
     private int rawDataVersion;
     private int viewDataVersion;
+    private bool suppressHeaderSortSync;
 
     public MainWindow(
         Configuration configuration,
@@ -85,20 +86,24 @@ public sealed class MainWindow : Window
         DrawPlannerSummary(cache);
         DrawDiagnosticsPanel(cache);
 
-        if (!ImGui.BeginTable("societal-reputation-table", 8, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        var tableFlags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable | ImGuiTableFlags.SortMulti;
+        if (!ImGui.BeginTable("societal-reputation-table", 8, tableFlags))
         {
             return;
         }
 
-        ImGui.TableSetupColumn("Society");
-        ImGui.TableSetupColumn("Activity");
-        ImGui.TableSetupColumn("Rank");
-        ImGui.TableSetupColumn("Reputation");
-        ImGui.TableSetupColumn("Progress");
-        ImGui.TableSetupColumn("ETA");
-        ImGui.TableSetupColumn("Dailies");
-        ImGui.TableSetupColumn("Automation");
+        SetupSortableColumns();
         ImGui.TableHeadersRow();
+        if (TrySyncSortFromTableHeaders())
+        {
+            RebuildPlannerView();
+            cache = this.plannerCache;
+            if (cache == null)
+            {
+                ImGui.EndTable();
+                return;
+            }
+        }
 
         for (var i = 0; i < cache.VisibleRows.Length; i++)
         {
@@ -138,8 +143,12 @@ public sealed class MainWindow : Window
         if (DrawEnumCombo("Sort", ref sortMode))
         {
             this.configuration.SortMode = sortMode;
+            this.configuration.SortAscending = GetDefaultSortDirection(sortMode);
+            this.suppressHeaderSortSync = true;
             SaveConfiguration();
         }
+        ImGui.SameLine();
+        ImGui.TextDisabled($"Sort: {this.configuration.SortMode} {(this.configuration.SortAscending ? "↑" : "↓")}");
 
         if (ImGui.Button("Start recommended daily"))
         {
@@ -649,7 +658,7 @@ public sealed class MainWindow : Window
 
     private Comparison<RowViewState> GetVisibleRowComparer()
     {
-        return this.configuration.SortMode switch
+        Comparison<RowViewState> baseComparer = this.configuration.SortMode switch
         {
             SocietySortMode.Name => static (left, right) =>
                 StringComparer.Ordinal.Compare(left.Row.Progress.Society.Name, right.Row.Progress.Society.Name),
@@ -680,6 +689,100 @@ public sealed class MainWindow : Window
                     : StringComparer.Ordinal.Compare(left.Row.Progress.Society.Name, right.Row.Progress.Society.Name);
             },
             _ => static (left, right) => CompareRecommendedRows(left, right),
+        };
+        return this.configuration.SortAscending
+            ? baseComparer
+            : (left, right) => baseComparer(right, left);
+    }
+
+    private void SetupSortableColumns()
+    {
+        ImGui.TableSetupColumn("Society", GetSortableColumnFlags(SortColumnKey.Society), 0, (uint)SortColumnKey.Society);
+        ImGui.TableSetupColumn("Activity", GetSortableColumnFlags(SortColumnKey.Activity), 0, (uint)SortColumnKey.Activity);
+        ImGui.TableSetupColumn("Rank", GetSortableColumnFlags(SortColumnKey.Rank), 0, (uint)SortColumnKey.Rank);
+        ImGui.TableSetupColumn("Reputation", GetSortableColumnFlags(SortColumnKey.Reputation), 0, (uint)SortColumnKey.Reputation);
+        ImGui.TableSetupColumn("Progress", GetSortableColumnFlags(SortColumnKey.Progress), 0, (uint)SortColumnKey.Progress);
+        ImGui.TableSetupColumn("ETA", GetSortableColumnFlags(SortColumnKey.Eta), 0, (uint)SortColumnKey.Eta);
+        ImGui.TableSetupColumn("Dailies", GetSortableColumnFlags(SortColumnKey.Dailies), 0, (uint)SortColumnKey.Dailies);
+        ImGui.TableSetupColumn("Automation", ImGuiTableColumnFlags.NoSort, 0, (uint)SortColumnKey.Automation);
+    }
+
+    private unsafe bool TrySyncSortFromTableHeaders()
+    {
+        if (this.suppressHeaderSortSync)
+        {
+            this.suppressHeaderSortSync = false;
+            return false;
+        }
+
+        var sortSpecs = ImGui.TableGetSortSpecs();
+        if (sortSpecs.IsNull || !sortSpecs.SpecsDirty || sortSpecs.SpecsCount == 0)
+        {
+            return false;
+        }
+
+        var primary = sortSpecs.Specs[0];
+        var mappedMode = MapSortModeFromColumn((SortColumnKey)primary.ColumnUserID);
+        var ascending = primary.SortDirection != ImGuiSortDirection.Descending;
+        var changed = mappedMode != this.configuration.SortMode || ascending != this.configuration.SortAscending;
+        if (changed)
+        {
+            this.configuration.SortMode = mappedMode;
+            this.configuration.SortAscending = ascending;
+            SaveConfiguration();
+        }
+
+        sortSpecs.SpecsDirty = false;
+        return changed;
+    }
+
+    private ImGuiTableColumnFlags GetSortableColumnFlags(SortColumnKey column)
+    {
+        var flags = ImGuiTableColumnFlags.None;
+        if (GetColumnForSortMode(this.configuration.SortMode) == column)
+        {
+            flags |= ImGuiTableColumnFlags.DefaultSort;
+            if (!this.configuration.SortAscending)
+            {
+                flags |= ImGuiTableColumnFlags.PreferSortDescending;
+            }
+        }
+
+        return flags;
+    }
+
+    private static SocietySortMode MapSortModeFromColumn(SortColumnKey column)
+    {
+        return column switch
+        {
+            SortColumnKey.Society => SocietySortMode.Name,
+            SortColumnKey.Activity => SocietySortMode.Name,
+            SortColumnKey.Rank => SocietySortMode.ClosestToRankUp,
+            SortColumnKey.Reputation => SocietySortMode.ClosestToRankUp,
+            SortColumnKey.Progress => SocietySortMode.Recommended,
+            SortColumnKey.Eta => SocietySortMode.ClosestToRankUp,
+            SortColumnKey.Dailies => SocietySortMode.Recommended,
+            _ => SocietySortMode.Recommended,
+        };
+    }
+
+    private static SortColumnKey GetColumnForSortMode(SocietySortMode mode)
+    {
+        return mode switch
+        {
+            SocietySortMode.Name => SortColumnKey.Society,
+            SocietySortMode.Expansion => SortColumnKey.Activity,
+            SocietySortMode.ClosestToRankUp => SortColumnKey.Rank,
+            _ => SortColumnKey.Progress,
+        };
+    }
+
+    private static bool GetDefaultSortDirection(SocietySortMode sortMode)
+    {
+        return sortMode switch
+        {
+            SocietySortMode.Recommended => false,
+            _ => true,
         };
     }
 
@@ -924,6 +1027,18 @@ public sealed class MainWindow : Window
         Ready,
         InProgress,
         Blocked,
+    }
+
+    private enum SortColumnKey : uint
+    {
+        Society = 1,
+        Activity = 2,
+        Rank = 3,
+        Reputation = 4,
+        Progress = 5,
+        Eta = 6,
+        Dailies = 7,
+        Automation = 8,
     }
 
     private static class EnumValueCache<TEnum>

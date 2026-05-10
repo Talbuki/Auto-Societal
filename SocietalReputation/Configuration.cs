@@ -13,11 +13,13 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool ShowCompletedDailies { get; set; } = true;
 
-    public bool OnlyShowActionableSocieties { get; set; }
+    public bool OnlyShowActionableSocieties { get; set; } = true;
 
     public ActivityFilter PreferredActivityFilter { get; set; } = ActivityFilter.All;
 
-    public SocietySortMode SortMode { get; set; } = SocietySortMode.Recommended;
+    public SocietySortMode SortMode { get; set; } = SocietySortMode.ClosestToRankUp;
+
+    public bool SortAscending { get; set; } = true;
 
     public Dictionary<string, CharacterAchievementCache> AchievementCacheByCharacter { get; set; } = new(StringComparer.Ordinal);
 
