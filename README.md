@@ -39,6 +39,8 @@ Use the built plugin files from the output directory to assemble the published r
 - `SocietalReputation.dll`
 - `SocietalReputation.json`
 
+Custom-repo installs will fail until the published GitHub release asset exists at the URL referenced by [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1).
+
 Do not commit release binaries, transient local build files, or source-control metadata to this repository.
 
 ## Custom Repository Install
@@ -46,7 +48,7 @@ Do not commit release binaries, transient local build files, or source-control m
 If you want testers to install from a custom repo instead of a dev path:
 
 1. Create a GitHub prerelease tagged `v0.1.0-prerelease`.
-2. Publish the packaged plugin artifact required by Dalamud for install/update downloads.
+2. Attach `SocietalReputation.zip` to that release. The ZIP must contain `SocietalReputation.dll` and `SocietalReputation.json` at the archive root.
 3. Host the root-level [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) from a public raw URL or GitHub Pages.
 4. Tell testers to copy that public `repo.json` URL.
 5. In XIVLauncher, open `Settings` -> `Experimental`, add the custom plugin repository URL, then refresh the plugin installer.
@@ -55,7 +57,9 @@ The current repository entry still points to the published release artifact used
 
 - `https://github.com/Talbuki/Auto-Societal/releases/download/v0.1.0-prerelease/SocietalReputation.zip`
 
-If you change the release tag or hosting path, update [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) to match before sharing it.
+If that asset is missing, GitHub will return `404 Not Found` and Dalamud installs will fail even if the repo manifest itself loads correctly.
+
+If you change the release tag, asset name, or hosting path, update [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) to match before sharing it.
 
 ## Repository
 
