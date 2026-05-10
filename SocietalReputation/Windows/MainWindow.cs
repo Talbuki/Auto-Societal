@@ -518,9 +518,12 @@ public sealed class MainWindow : Window
             ? 0
             : Math.Max(0, progress.CurrentRank.MaximumReputation - progress.CurrentReputation);
         var eta = BuildEtaInfo(progress, recommendedRow.Row.DailyStatus);
-        var etaText = eta.EstimatedResets <= 0
-            ? "At next reset."
-            : $"~{eta.EstimatedResets} reset(s), target {eta.EstimatedCompletionUtc:ddd}.";
+        var etaText = eta.Kind switch
+        {
+            EtaKind.Completed => "Completed.",
+            EtaKind.Projected => $"{eta.StatusPhrase} Target: {eta.EstimatedCompletionUtc:ddd, MMM d}. Rep/week: {eta.ProjectedReputationPerWeek:N0}. Ranks/week: {eta.ProjectedRanksPerWeek:0.00}.",
+            _ => "No projection available.",
+        };
 
         return new PlannerRecommendation(
             recommendedRow.Row,
@@ -814,28 +817,60 @@ public sealed class MainWindow : Window
     {
         if (progress.IsMaxRank)
         {
-            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No further rank progress is needed for this society.", EtaKind.Completed);
+            return new EtaInfo(
+                int.MaxValue,
+                DateTime.UtcNow,
+                "No further rank progress is needed for this society.",
+                EtaKind.Completed,
+                "Completed",
+                0,
+                0);
         }
 
         if (!progress.IsUnlocked || progress.CurrentRank.MaximumReputation == 0 || !progress.HasDailyQuestSupport)
         {
-            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No ETA available.", EtaKind.Unavailable);
+            return new EtaInfo(
+                int.MaxValue,
+                DateTime.UtcNow,
+                "No ETA available.",
+                EtaKind.Unavailable,
+                "No projection",
+                0,
+                0);
         }
 
         var remaining = Math.Max(0, GetRankUpDistance(progress));
         var estimatedRepPerReset = GetConservativeReputationPerReset(progress, dailyStatus);
         if (estimatedRepPerReset <= 0)
         {
-            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No daily quest pace available.", EtaKind.Unavailable);
+            return new EtaInfo(
+                int.MaxValue,
+                DateTime.UtcNow,
+                "No daily quest pace available.",
+                EtaKind.Unavailable,
+                "No projection",
+                0,
+                0);
         }
 
-        var resets = (remaining + estimatedRepPerReset - 1) / estimatedRepPerReset;
-        var completion = GetNextDailyResetUtc(DateTime.UtcNow).AddDays(Math.Max(0, resets - 1));
+        var days = (remaining + estimatedRepPerReset - 1) / estimatedRepPerReset;
+        var completion = GetNextDailyResetUtc(DateTime.UtcNow).AddDays(Math.Max(0, days - 1));
+        var repPerWeek = estimatedRepPerReset * 7;
+        var ranksPerWeek = progress.RankReputationRequired <= 0
+            ? 0
+            : (double)repPerWeek / progress.RankReputationRequired;
+        var statusPhrase = days <= 1
+            ? "You'll rank up tomorrow."
+            : $"~{days} days to rank up.";
+
         return new EtaInfo(
-            resets,
+            days,
             completion,
-            $"{remaining:N0} rep remaining at ~{estimatedRepPerReset:N0} rep/day.",
-            EtaKind.Projected);
+            $"{remaining:N0} rep remaining at ~{estimatedRepPerReset:N0} rep/day. Est. completion {completion:ddd, MMM d}. Rep/week {repPerWeek:N0}. Ranks/week {ranksPerWeek:0.00}.",
+            EtaKind.Projected,
+            statusPhrase,
+            repPerWeek,
+            ranksPerWeek);
     }
 
     private static int GetConservativeReputationPerReset(SocietyProgress progress, DailyQuestStatus dailyStatus)
@@ -914,8 +949,8 @@ public sealed class MainWindow : Window
         return eta.Kind switch
         {
             EtaKind.Completed => "Completed",
-            EtaKind.Projected when eta.EstimatedResets <= 0 => "Today",
-            EtaKind.Projected => $"~{eta.EstimatedResets} day(s)",
+            EtaKind.Projected when eta.EstimatedResets <= 1 => "You'll rank up tomorrow",
+            EtaKind.Projected => $"~{eta.EstimatedResets} days",
             _ => "No ETA",
         };
     }
@@ -925,14 +960,18 @@ public sealed class MainWindow : Window
         return eta.Kind switch
         {
             EtaKind.Completed => "Max rank reached",
-            EtaKind.Projected => $"Est. {eta.EstimatedCompletionUtc:ddd}",
+            EtaKind.Projected => $"Est. {eta.EstimatedCompletionUtc:ddd, MMM d}",
             _ => "No daily projection",
         };
     }
 
     private static string BuildEtaTooltipText(EtaInfo eta)
     {
-        return eta.DetailText;
+        return eta.Kind switch
+        {
+            EtaKind.Projected => $"{eta.DetailText}\nWeekly efficiency: {eta.ProjectedReputationPerWeek:N0} rep/week, {eta.ProjectedRanksPerWeek:0.00} ranks/week.",
+            _ => eta.DetailText,
+        };
     }
 
     private bool DrawEnumCombo<TEnum>(string label, ref TEnum selected)
@@ -1012,7 +1051,10 @@ public sealed class MainWindow : Window
         int EstimatedResets,
         DateTime EstimatedCompletionUtc,
         string DetailText,
-        EtaKind Kind);
+        EtaKind Kind,
+        string StatusPhrase,
+        int ProjectedReputationPerWeek,
+        double ProjectedRanksPerWeek);
 
     private enum EtaKind
     {
