@@ -547,13 +547,9 @@ public sealed class MainWindow : Window
             BuildDailyBreakdownText(dailyStatus),
             BuildButtonLabel(progress, dailyStatus),
             BuildRowColor(visualState),
-            eta.EstimatedResets <= 0
-                ? "Today"
-                : $"~{eta.EstimatedResets} reset(s)",
-            eta.EstimatedResets == int.MaxValue
-                ? "No daily projection"
-                : $"Est. {eta.EstimatedCompletionUtc:ddd}",
-            eta.DetailText,
+            BuildEtaSummaryText(eta),
+            BuildEtaDetailText(eta),
+            BuildEtaTooltipText(eta),
             GetRankUpDistance(progress) > 0 && GetRankUpDistance(progress) <= NearRankUpThresholdReputation);
     }
 
@@ -713,16 +709,21 @@ public sealed class MainWindow : Window
 
     private static EtaInfo BuildEtaInfo(SocietyProgress progress, DailyQuestStatus dailyStatus)
     {
-        if (!progress.IsUnlocked || progress.IsMaxRank || progress.CurrentRank.MaximumReputation == 0 || !progress.HasDailyQuestSupport)
+        if (progress.IsMaxRank)
         {
-            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No ETA available.");
+            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No further rank progress is needed for this society.", EtaKind.Completed);
+        }
+
+        if (!progress.IsUnlocked || progress.CurrentRank.MaximumReputation == 0 || !progress.HasDailyQuestSupport)
+        {
+            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No ETA available.", EtaKind.Unavailable);
         }
 
         var remaining = Math.Max(0, GetRankUpDistance(progress));
         var estimatedRepPerReset = GetConservativeReputationPerReset(progress, dailyStatus);
         if (estimatedRepPerReset <= 0)
         {
-            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No daily quest pace available.");
+            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No daily quest pace available.", EtaKind.Unavailable);
         }
 
         var resets = (remaining + estimatedRepPerReset - 1) / estimatedRepPerReset;
@@ -730,7 +731,8 @@ public sealed class MainWindow : Window
         return new EtaInfo(
             resets,
             completion,
-            $"{remaining:N0} rep remaining at ~{estimatedRepPerReset:N0} rep/reset.");
+            $"{remaining:N0} rep remaining at ~{estimatedRepPerReset:N0} rep/day.",
+            EtaKind.Projected);
     }
 
     private static int GetConservativeReputationPerReset(SocietyProgress progress, DailyQuestStatus dailyStatus)
@@ -802,6 +804,32 @@ public sealed class MainWindow : Window
             ImGui.TextUnformatted(text);
             ImGui.EndTooltip();
         }
+    }
+
+    private static string BuildEtaSummaryText(EtaInfo eta)
+    {
+        return eta.Kind switch
+        {
+            EtaKind.Completed => "Completed",
+            EtaKind.Projected when eta.EstimatedResets <= 0 => "Today",
+            EtaKind.Projected => $"~{eta.EstimatedResets} day(s)",
+            _ => "No ETA",
+        };
+    }
+
+    private static string BuildEtaDetailText(EtaInfo eta)
+    {
+        return eta.Kind switch
+        {
+            EtaKind.Completed => "Max rank reached",
+            EtaKind.Projected => $"Est. {eta.EstimatedCompletionUtc:ddd}",
+            _ => "No daily projection",
+        };
+    }
+
+    private static string BuildEtaTooltipText(EtaInfo eta)
+    {
+        return eta.DetailText;
     }
 
     private bool DrawEnumCombo<TEnum>(string label, ref TEnum selected)
@@ -880,7 +908,15 @@ public sealed class MainWindow : Window
     private sealed record EtaInfo(
         int EstimatedResets,
         DateTime EstimatedCompletionUtc,
-        string DetailText);
+        string DetailText,
+        EtaKind Kind);
+
+    private enum EtaKind
+    {
+        Unavailable,
+        Projected,
+        Completed,
+    }
 
     private enum RowVisualState
     {
