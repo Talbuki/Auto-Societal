@@ -1,9 +1,14 @@
 {
+  "$schema": "https://raw.githubusercontent.com/goatcorp/Dalamud/master/Dalamud/Configuration/PluginManifest/pluginmanifest.schema.json",
   "Name": "Societal Reputation",
   "Author": "Talbuki",
   "Punchline": "Track Allied Society reputation progress at a glance.",
   "Description": "Track Allied Society reputation, rank progress, daily quest readiness, and achievement milestones in one planner-focused Dalamud window. Optional Questionable integration can help start available society dailies.",
+  "InternalName": "SocietalReputation",
+  "AssemblyVersion": "0.1.0.0",
   "RepoUrl": "https://github.com/Talbuki/Auto-Societal",
+  "ApplicableVersion": "any",
+  "DalamudApiLevel": 15,
   "Tags": [
     "society",
     "reputation",

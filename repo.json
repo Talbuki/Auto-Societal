@@ -1,5 +1,6 @@
 [
   {
+    "$schema": "https://raw.githubusercontent.com/goatcorp/Dalamud/master/Dalamud/Configuration/PluginManifest/pluginmanifest.schema.json",
     "Author": "Talbuki",
     "Name": "Societal Reputation",
     "InternalName": "SocietalReputation",

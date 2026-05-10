@@ -34,12 +34,14 @@ This `v0.1.0` build is intended as a GitHub prerelease. The core planner is usab
 
 ## GitHub Prerelease Assets
 
-Use the built plugin files from the output directory to assemble the published release artifact:
+GitHub Actions now builds and publishes the custom-repo release artifact for this project.
+
+The workflow packages these files from the Release build output:
 
 - `SocietalReputation.dll`
 - `SocietalReputation.json`
 
-Custom-repo installs will fail until the published GitHub release asset exists at the URL referenced by [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1).
+The published release asset is `SocietalReputation.zip`, and custom-repo installs depend on it existing at the URL referenced by [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1).
 
 Do not commit release binaries, transient local build files, or source-control metadata to this repository.
 
@@ -47,8 +49,8 @@ Do not commit release binaries, transient local build files, or source-control m
 
 If you want testers to install from a custom repo instead of a dev path:
 
-1. Create a GitHub prerelease tagged `v0.1.0-prerelease`.
-2. Attach `SocietalReputation.zip` to that release. The ZIP must contain `SocietalReputation.dll` and `SocietalReputation.json` at the archive root.
+1. Push the release tag `v0.1.0-prerelease`, or manually run the `Build and Release` workflow with that version.
+2. Let GitHub Actions publish `SocietalReputation.zip` and `SocietalReputation.json` to the matching GitHub release.
 3. Host the root-level [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) from a public raw URL or GitHub Pages.
 4. Tell testers to copy that public `repo.json` URL.
 5. In XIVLauncher, open `Settings` -> `Experimental`, add the custom plugin repository URL, then refresh the plugin installer.
@@ -57,7 +59,7 @@ The current repository entry still points to the published release artifact used
 
 - `https://github.com/Talbuki/Auto-Societal/releases/download/v0.1.0-prerelease/SocietalReputation.zip`
 
-If that asset is missing, GitHub will return `404 Not Found` and Dalamud installs will fail even if the repo manifest itself loads correctly.
+If that asset is missing, GitHub will return `404 Not Found` and Dalamud installs will fail even if the repo manifest itself loads correctly. The release workflow is what keeps that URL populated.
 
 If you change the release tag, asset name, or hosting path, update [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) to match before sharing it.
 

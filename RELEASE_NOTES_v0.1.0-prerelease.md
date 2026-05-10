@@ -22,7 +22,7 @@ First public GitHub prerelease of `Societal Reputation`.
 - `SocietalReputation.zip` for Dalamud custom-repository installs
 - `repo.json` for custom repository hosting
 
-`SocietalReputation.zip` must be attached to the GitHub prerelease tagged `v0.1.0-prerelease`. Until that asset is published, the custom-repo download URL in `repo.json` will return `404 Not Found` and installs will fail.
+`SocietalReputation.zip` is published by the GitHub Actions `Build and Release` workflow for the `v0.1.0-prerelease` release. Until that asset is published, the custom-repo download URL in `repo.json` will return `404 Not Found` and installs will fail.
 
 The published install artifact should contain these files at the package root:
 
