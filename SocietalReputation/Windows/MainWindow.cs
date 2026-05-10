@@ -10,6 +10,9 @@ namespace SocietalReputation.Windows;
 public sealed class MainWindow : Window
 {
     private const float PassiveRefreshIntervalSeconds = 3f;
+    private const int DailyResetHourUtc = 15;
+    private const int ConservativeReputationPerQuest = 60;
+    private const int NearRankUpThresholdReputation = 240;
     private static readonly Vector2 FillWidthProgressBarSize = new(-1, 0);
 
     private readonly Configuration configuration;
@@ -82,7 +85,7 @@ public sealed class MainWindow : Window
         DrawPlannerSummary(cache);
         DrawDiagnosticsPanel(cache);
 
-        if (!ImGui.BeginTable("societal-reputation-table", 7, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
+        if (!ImGui.BeginTable("societal-reputation-table", 8, ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable))
         {
             return;
         }
@@ -92,6 +95,7 @@ public sealed class MainWindow : Window
         ImGui.TableSetupColumn("Rank");
         ImGui.TableSetupColumn("Reputation");
         ImGui.TableSetupColumn("Progress");
+        ImGui.TableSetupColumn("ETA");
         ImGui.TableSetupColumn("Dailies");
         ImGui.TableSetupColumn("Automation");
         ImGui.TableHeadersRow();
@@ -183,8 +187,10 @@ public sealed class MainWindow : Window
         }
 
         ImGui.TextDisabled(cache.AutomationState);
+        ImGui.TextUnformatted($"Daily reset in: {cache.ResetCountdownText}");
         ImGui.TextUnformatted($"Tribal allowances: {snapshot.RemainingAllowances}/{snapshot.TotalAllowances} remaining");
         ImGui.TextDisabled($"{snapshot.AcceptedDailyQuests} accepted daily quest(s) active across all societies.");
+        DrawDashboard(cache);
 
         var achievementSnapshot = this.cachedAchievementSnapshot;
         if (achievementSnapshot != null)
@@ -199,8 +205,23 @@ public sealed class MainWindow : Window
 
         ImGui.TextUnformatted(cache.Recommendation.Summary);
         ImGui.TextDisabled(cache.Recommendation.Reason);
+        DrawTooltip("Recommendation is based on actionability, quest readiness, and distance to rank up.");
         ImGui.TextDisabled(this.automationStatus);
+        DrawTooltip(this.automationStatus);
         ImGui.Separator();
+    }
+
+    private static void DrawDashboard(PlannerViewCache cache)
+    {
+        ImGui.TextUnformatted($"Actionable: {cache.ActionableCount}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"In progress: {cache.InProgressCount}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Blocked: {cache.BlockedCount}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Near rank-up: {cache.NearRankUpCount}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Maxed: {cache.MaxedCount}");
     }
 
     private void DrawDiagnosticsPanel(PlannerViewCache cache)
@@ -228,11 +249,13 @@ public sealed class MainWindow : Window
         var dailyStatus = rowState.Row.DailyStatus;
 
         ImGui.TableNextRow();
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, rowState.RowColorU32);
 
         ImGui.TableNextColumn();
         ImGui.TextUnformatted(progress.Society.Name);
         ImGui.TextDisabled(progress.Society.Expansion);
         ImGui.TextDisabled(rowState.Row.AchievementStatus.StatusMessage);
+        DrawTooltip(rowState.Row.AchievementStatus.StatusMessage);
         if (ReferenceEquals(cache.RecommendationRow, rowState))
         {
             ImGui.TextDisabled("Recommended next");
@@ -260,6 +283,7 @@ public sealed class MainWindow : Window
         else
         {
             ImGui.TextUnformatted($"{progress.CurrentReputation:N0} / {progress.CurrentRank.MaximumReputation:N0}");
+            DrawTooltip($"{GetRankUpDistance(progress):N0} reputation to next rank.");
         }
 
         ImGui.TableNextColumn();
@@ -274,7 +298,13 @@ public sealed class MainWindow : Window
         else
         {
             ImGui.ProgressBar(progress.RankProgress, FillWidthProgressBarSize, $"{progress.RankReputationEarned:N0} / {progress.RankReputationRequired:N0}");
+            DrawTooltip($"{GetRankUpDistance(progress):N0} reputation remaining to rank up.");
         }
+
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted(rowState.EtaSummary);
+        ImGui.TextDisabled(rowState.EtaDetail);
+        DrawTooltip(rowState.EtaTooltip);
 
         ImGui.TableNextColumn();
         if (!progress.HasDailyQuestSupport)
@@ -306,6 +336,7 @@ public sealed class MainWindow : Window
         }
 
         ImGui.TextDisabled(dailyStatus.StatusMessage);
+        DrawTooltip(dailyStatus.StatusMessage);
     }
 
     private void EnsurePlannerCache()
@@ -372,6 +403,9 @@ public sealed class MainWindow : Window
             CountRows(this.cachedRowStates, static row => row.Row.DailyStatus.Readiness == DailyQuestReadiness.InProgress),
             CountRows(this.cachedRowStates, static row => row.Row.DailyStatus.NeedsSetup),
             CountRows(this.cachedRowStates, static row => row.Row.DailyStatus.Readiness == DailyQuestReadiness.LockedOrUnavailable),
+            CountRows(this.cachedRowStates, static row => row.Row.Progress.IsMaxRank),
+            CountRows(this.cachedRowStates, static row => row.IsNearRankUp),
+            BuildResetCountdownText(DateTime.UtcNow),
             BuildAutomationState(),
             this.rawDataVersion,
             ++this.viewDataVersion);
@@ -474,12 +508,16 @@ public sealed class MainWindow : Window
         var rankRemaining = progress.CurrentRank.MaximumReputation == 0
             ? 0
             : Math.Max(0, progress.CurrentRank.MaximumReputation - progress.CurrentReputation);
+        var eta = BuildEtaInfo(progress, recommendedRow.Row.DailyStatus);
+        var etaText = eta.EstimatedResets <= 0
+            ? "At next reset."
+            : $"~{eta.EstimatedResets} reset(s), target {eta.EstimatedCompletionUtc:ddd}.";
 
         return new PlannerRecommendation(
             recommendedRow.Row,
             $"Recommended: {progress.Society.Name}",
             rankRemaining > 0
-                ? $"{reason} {rankRemaining:N0} reputation to the next rank."
+                ? $"{reason} {rankRemaining:N0} reputation to the next rank. {etaText}"
                 : reason);
     }
 
@@ -499,13 +537,24 @@ public sealed class MainWindow : Window
     {
         var dailyStatus = row.DailyStatus;
         var progress = row.Progress;
+        var eta = BuildEtaInfo(progress, dailyStatus);
+        var visualState = GetVisualState(row);
         return new RowViewState(
             row,
             GetRecommendationScore(row),
             GetDiagnosticPriority(row),
             progress.IsUnlocked && dailyStatus.CanStartNextQuest,
             BuildDailyBreakdownText(dailyStatus),
-            BuildButtonLabel(progress, dailyStatus));
+            BuildButtonLabel(progress, dailyStatus),
+            BuildRowColor(visualState),
+            eta.EstimatedResets <= 0
+                ? "Today"
+                : $"~{eta.EstimatedResets} reset(s)",
+            eta.EstimatedResets == int.MaxValue
+                ? "No daily projection"
+                : $"Est. {eta.EstimatedCompletionUtc:ddd}",
+            eta.DetailText,
+            GetRankUpDistance(progress) > 0 && GetRankUpDistance(progress) <= NearRankUpThresholdReputation);
     }
 
     private static string BuildButtonLabel(SocietyProgress progress, DailyQuestStatus dailyStatus)
@@ -662,6 +711,99 @@ public sealed class MainWindow : Window
             : progress.CurrentRank.MaximumReputation - progress.CurrentReputation;
     }
 
+    private static EtaInfo BuildEtaInfo(SocietyProgress progress, DailyQuestStatus dailyStatus)
+    {
+        if (!progress.IsUnlocked || progress.IsMaxRank || progress.CurrentRank.MaximumReputation == 0 || !progress.HasDailyQuestSupport)
+        {
+            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No ETA available.");
+        }
+
+        var remaining = Math.Max(0, GetRankUpDistance(progress));
+        var estimatedRepPerReset = GetConservativeReputationPerReset(progress, dailyStatus);
+        if (estimatedRepPerReset <= 0)
+        {
+            return new EtaInfo(int.MaxValue, DateTime.UtcNow, "No daily quest pace available.");
+        }
+
+        var resets = (remaining + estimatedRepPerReset - 1) / estimatedRepPerReset;
+        var completion = GetNextDailyResetUtc(DateTime.UtcNow).AddDays(Math.Max(0, resets - 1));
+        return new EtaInfo(
+            resets,
+            completion,
+            $"{remaining:N0} rep remaining at ~{estimatedRepPerReset:N0} rep/reset.");
+    }
+
+    private static int GetConservativeReputationPerReset(SocietyProgress progress, DailyQuestStatus dailyStatus)
+    {
+        if (!progress.HasDailyQuestSupport || progress.IsMaxRank || !progress.IsUnlocked)
+        {
+            return 0;
+        }
+
+        var availableSlots = Math.Max(0, progress.DailyQuestAllowanceTotal - dailyStatus.AcceptedQuestCount);
+        var projectedQuestCount = Math.Max(1, Math.Min(progress.DailyQuestAllowanceTotal, availableSlots + dailyStatus.CompletedQuestCount));
+        return projectedQuestCount * ConservativeReputationPerQuest;
+    }
+
+    private static DateTime GetNextDailyResetUtc(DateTime utcNow)
+    {
+        var resetToday = new DateTime(utcNow.Year, utcNow.Month, utcNow.Day, DailyResetHourUtc, 0, 0, DateTimeKind.Utc);
+        return utcNow < resetToday
+            ? resetToday
+            : resetToday.AddDays(1);
+    }
+
+    private static string BuildResetCountdownText(DateTime utcNow)
+    {
+        var nextReset = GetNextDailyResetUtc(utcNow);
+        var remaining = nextReset - utcNow;
+        if (remaining < TimeSpan.Zero)
+        {
+            remaining = TimeSpan.Zero;
+        }
+
+        return $"{(int)remaining.TotalHours}h {remaining.Minutes:D2}m";
+    }
+
+    private static RowVisualState GetVisualState(SocietyPlannerRow row)
+    {
+        var progress = row.Progress;
+        if (!progress.IsUnlocked || progress.IsMaxRank)
+        {
+            return RowVisualState.Neutral;
+        }
+
+        return row.DailyStatus.Readiness switch
+        {
+            DailyQuestReadiness.ReadyToTurnIn => RowVisualState.Ready,
+            DailyQuestReadiness.InProgress => RowVisualState.InProgress,
+            DailyQuestReadiness.LockedOrUnavailable or DailyQuestReadiness.Unavailable or DailyQuestReadiness.Unconfigured => RowVisualState.Blocked,
+            _ => RowVisualState.Neutral,
+        };
+    }
+
+    private static uint BuildRowColor(RowVisualState state)
+    {
+        var color = state switch
+        {
+            RowVisualState.Ready => new Vector4(0.10f, 0.28f, 0.12f, 0.24f),
+            RowVisualState.InProgress => new Vector4(0.32f, 0.26f, 0.08f, 0.22f),
+            RowVisualState.Blocked => new Vector4(0.35f, 0.08f, 0.08f, 0.20f),
+            _ => new Vector4(0.18f, 0.18f, 0.18f, 0.15f),
+        };
+        return ImGui.GetColorU32(color);
+    }
+
+    private static void DrawTooltip(string text)
+    {
+        if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) && !string.IsNullOrWhiteSpace(text))
+        {
+            ImGui.BeginTooltip();
+            ImGui.TextUnformatted(text);
+            ImGui.EndTooltip();
+        }
+    }
+
     private bool DrawEnumCombo<TEnum>(string label, ref TEnum selected)
         where TEnum : struct, Enum
     {
@@ -712,7 +854,12 @@ public sealed class MainWindow : Window
         int DiagnosticPriority,
         bool CanStartDaily,
         string DailyBreakdownText,
-        string ButtonLabel);
+        string ButtonLabel,
+        uint RowColorU32,
+        string EtaSummary,
+        string EtaDetail,
+        string EtaTooltip,
+        bool IsNearRankUp);
 
     private sealed record PlannerViewCache(
         RowViewState[] VisibleRows,
@@ -723,9 +870,25 @@ public sealed class MainWindow : Window
         int InProgressCount,
         int SetupCount,
         int BlockedCount,
+        int MaxedCount,
+        int NearRankUpCount,
+        string ResetCountdownText,
         string AutomationState,
         int RawDataVersion,
         int ViewDataVersion);
+
+    private sealed record EtaInfo(
+        int EstimatedResets,
+        DateTime EstimatedCompletionUtc,
+        string DetailText);
+
+    private enum RowVisualState
+    {
+        Neutral,
+        Ready,
+        InProgress,
+        Blocked,
+    }
 
     private static class EnumValueCache<TEnum>
         where TEnum : struct, Enum
