@@ -25,6 +25,20 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool OnboardingDismissed { get; set; }
 
+    public bool EnableToastAlerts { get; set; }
+
+    public bool EnableChatAlerts { get; set; }
+
+    public bool NotifyDailyReset { get; set; }
+
+    public bool NotifySocietyUnlocked { get; set; }
+
+    public bool NotifyRankUpAvailable { get; set; }
+
+    public bool NotifyAutomationStalled { get; set; }
+
+    public bool NotifyPrerequisiteMet { get; set; }
+
     public Dictionary<string, CharacterAchievementCache> AchievementCacheByCharacter { get; set; } = new(StringComparer.Ordinal);
 
     public void Save(IDalamudPluginInterface pluginInterface)

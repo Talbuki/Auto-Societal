@@ -5,5 +5,5 @@ public sealed record SocietyPlannerRow(
     DailyQuestStatus DailyStatus,
     SocietyAchievementStatus AchievementStatus)
 {
-    public bool IsActionable => Progress.IsUnlocked && DailyStatus.CanStartNextQuest;
+    public bool IsActionable => SocietyPlannerRules.IsActionable(Progress, DailyStatus);
 }

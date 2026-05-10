@@ -14,21 +14,29 @@ public sealed class Plugin : IDalamudPlugin
     private readonly ReputationService reputationService;
     private readonly QuestionableAutomationService automationService;
     private readonly AchievementTrackingService achievementTrackingService;
+    private readonly AlertMonitorService alertMonitorService;
     private readonly MainWindow mainWindow;
+    private readonly IFramework framework;
 
     public Plugin(
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
         IDataManager dataManager,
         IUnlockState unlockState,
-        IPlayerState playerState)
+        IPlayerState playerState,
+        IFramework framework,
+        IChatGui chatGui,
+        IToastGui toastGui)
     {
         this.pluginInterface = pluginInterface;
+        this.framework = framework;
 
         Configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.reputationService = new ReputationService();
         this.automationService = new QuestionableAutomationService(pluginInterface);
         this.achievementTrackingService = new AchievementTrackingService(dataManager, unlockState, playerState, Configuration, pluginInterface);
+        var alertDispatcher = new AlertDispatcher(Configuration, chatGui, toastGui);
+        this.alertMonitorService = new AlertMonitorService(this.reputationService, this.automationService, alertDispatcher);
         this.mainWindow = new MainWindow(Configuration, pluginInterface, this.reputationService, this.automationService, this.achievementTrackingService)
         {
             IsOpen = Configuration.IsMainWindowOpen,
@@ -41,6 +49,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.Draw += Draw;
         pluginInterface.UiBuilder.OpenMainUi += ToggleMainWindow;
         pluginInterface.UiBuilder.OpenConfigUi += ToggleMainWindow;
+        this.framework.Update += this.alertMonitorService.OnFrameworkUpdate;
     }
 
     internal Configuration Configuration { get; }
@@ -53,6 +62,7 @@ public sealed class Plugin : IDalamudPlugin
         this.pluginInterface.UiBuilder.Draw -= Draw;
         this.pluginInterface.UiBuilder.OpenMainUi -= ToggleMainWindow;
         this.pluginInterface.UiBuilder.OpenConfigUi -= ToggleMainWindow;
+        this.framework.Update -= this.alertMonitorService.OnFrameworkUpdate;
 
         this.commandManager.Dispose();
         this.windowSystem.RemoveAllWindows();

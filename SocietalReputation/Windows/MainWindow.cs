@@ -84,6 +84,7 @@ public sealed class MainWindow : Window
 
         DrawPlannerControls(cache);
         DrawOnboardingWalkthrough();
+        DrawAlertsSection();
         DrawPlannerSummary(cache);
         DrawDiagnosticsPanel(cache);
 
@@ -220,6 +221,72 @@ public sealed class MainWindow : Window
             this.configuration.OnboardingDismissed = true;
             SaveConfiguration();
         }
+
+        ImGui.Separator();
+    }
+
+    private void DrawAlertsSection()
+    {
+        if (!ImGui.CollapsingHeader("Alerts"))
+        {
+            return;
+        }
+
+        var enableToastAlerts = this.configuration.EnableToastAlerts;
+        if (ImGui.Checkbox("Enable toast alerts", ref enableToastAlerts))
+        {
+            this.configuration.EnableToastAlerts = enableToastAlerts;
+            SaveConfiguration();
+        }
+        DrawTooltip("Show selected alerts as in-game toasts.");
+
+        var enableChatAlerts = this.configuration.EnableChatAlerts;
+        if (ImGui.Checkbox("Enable chat alerts", ref enableChatAlerts))
+        {
+            this.configuration.EnableChatAlerts = enableChatAlerts;
+            SaveConfiguration();
+        }
+        DrawTooltip("Print selected alerts to the chat log.");
+
+        var notifyDailyReset = this.configuration.NotifyDailyReset;
+        if (ImGui.Checkbox("Daily allowance reset", ref notifyDailyReset))
+        {
+            this.configuration.NotifyDailyReset = notifyDailyReset;
+            SaveConfiguration();
+        }
+        DrawTooltip("Alert when tribal allowances refresh after daily reset.");
+
+        var notifySocietyUnlocked = this.configuration.NotifySocietyUnlocked;
+        if (ImGui.Checkbox("Society unlocked", ref notifySocietyUnlocked))
+        {
+            this.configuration.NotifySocietyUnlocked = notifySocietyUnlocked;
+            SaveConfiguration();
+        }
+        DrawTooltip("Alert when a society becomes newly unlocked.");
+
+        var notifyRankUpAvailable = this.configuration.NotifyRankUpAvailable;
+        if (ImGui.Checkbox("Rank-up available", ref notifyRankUpAvailable))
+        {
+            this.configuration.NotifyRankUpAvailable = notifyRankUpAvailable;
+            SaveConfiguration();
+        }
+        DrawTooltip("Alert when a society becomes ready to rank up.");
+
+        var notifyAutomationStalled = this.configuration.NotifyAutomationStalled;
+        if (ImGui.Checkbox("Automation stalled", ref notifyAutomationStalled))
+        {
+            this.configuration.NotifyAutomationStalled = notifyAutomationStalled;
+            SaveConfiguration();
+        }
+        DrawTooltip("Alert when Questionable keeps running but no daily quest progress is detected for a while.");
+
+        var notifyPrerequisiteMet = this.configuration.NotifyPrerequisiteMet;
+        if (ImGui.Checkbox("Prerequisite met", ref notifyPrerequisiteMet))
+        {
+            this.configuration.NotifyPrerequisiteMet = notifyPrerequisiteMet;
+            SaveConfiguration();
+        }
+        DrawTooltip("Alert when a previously blocked society becomes actionable.");
 
         ImGui.Separator();
     }
