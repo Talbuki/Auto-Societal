@@ -21,6 +21,10 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool SortAscending { get; set; } = true;
 
+    public bool ShowOnboardingWalkthrough { get; set; } = true;
+
+    public bool OnboardingDismissed { get; set; }
+
     public Dictionary<string, CharacterAchievementCache> AchievementCacheByCharacter { get; set; } = new(StringComparer.Ordinal);
 
     public void Save(IDalamudPluginInterface pluginInterface)

@@ -83,6 +83,7 @@ public sealed class MainWindow : Window
         }
 
         DrawPlannerControls(cache);
+        DrawOnboardingWalkthrough();
         DrawPlannerSummary(cache);
         DrawDiagnosticsPanel(cache);
 
@@ -149,6 +150,7 @@ public sealed class MainWindow : Window
         }
         ImGui.SameLine();
         ImGui.TextDisabled($"Sort: {this.configuration.SortMode} {(this.configuration.SortAscending ? "↑" : "↓")}");
+        DrawAutomationHelpHint(cache);
 
         if (ImGui.Button("Start recommended daily"))
         {
@@ -187,6 +189,54 @@ public sealed class MainWindow : Window
         }
     }
 
+    private void DrawOnboardingWalkthrough()
+    {
+        if (!this.configuration.ShowOnboardingWalkthrough || this.configuration.OnboardingDismissed)
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted("Quick Start");
+        ImGui.Separator();
+        ImGui.TextUnformatted("1) Tribal allowances and daily limits");
+        ImGui.TextDisabled("You can accept up to 12 tribal quests per day, typically up to 3 from one society.");
+        ImGui.TextUnformatted("2) How recommendations work");
+        ImGui.TextDisabled("Recommendations prioritize actionable rows, daily readiness, and distance to next rank.");
+        ImGui.TextUnformatted("3) Why rows are blocked");
+        ImGui.TextDisabled("Rows may be blocked by unlock prerequisites, no available daily, or automation setup gaps.");
+        ImGui.TextUnformatted("4) How automation works");
+        ImGui.TextDisabled("Automation uses Questionable IPC. Tracking still works if Questionable is unavailable.");
+
+        if (ImGui.Button("Dismiss"))
+        {
+            this.configuration.ShowOnboardingWalkthrough = false;
+            SaveConfiguration();
+        }
+
+        ImGui.SameLine();
+        if (ImGui.Button("Don't show again"))
+        {
+            this.configuration.ShowOnboardingWalkthrough = false;
+            this.configuration.OnboardingDismissed = true;
+            SaveConfiguration();
+        }
+
+        ImGui.Separator();
+    }
+
+    private void DrawAutomationHelpHint(PlannerViewCache cache)
+    {
+        var hint = cache.AutomationState switch
+        {
+            "Questionable: unavailable" => "Automation setup: enable Questionable and complete its setup to use start/continue actions.",
+            "Questionable: running" => "Automation is currently running. Use Stop automation to pause or switch targets.",
+            _ => "Automation ready: Start recommended daily follows the top recommendation; Start visible dailies uses the first actionable visible row.",
+        };
+
+        ImGui.TextDisabled(hint);
+        DrawTooltip("Automation uses Questionable IPC only for quest pickup/continuation; reputation tracking is unaffected.");
+    }
+
     private void DrawPlannerSummary(PlannerViewCache cache)
     {
         var snapshot = this.cachedSnapshot;
@@ -214,6 +264,9 @@ public sealed class MainWindow : Window
 
         ImGui.TextUnformatted(cache.Recommendation.Summary);
         ImGui.TextDisabled(cache.Recommendation.Reason);
+        ImGui.SameLine();
+        ImGui.TextDisabled("[?]");
+        DrawTooltip("Recommendation factors: actionability, quest readiness, progress state, and reputation distance to next rank.");
         DrawTooltip("Recommendation is based on actionability, quest readiness, and distance to rank up.");
         ImGui.TextDisabled(this.automationStatus);
         DrawTooltip(this.automationStatus);
@@ -346,6 +399,11 @@ public sealed class MainWindow : Window
 
         ImGui.TextDisabled(dailyStatus.StatusMessage);
         DrawTooltip(dailyStatus.StatusMessage);
+        if (!rowState.Row.IsActionable && !progress.IsMaxRank)
+        {
+            ImGui.TextDisabled(rowState.BlockedInlineText);
+            DrawTooltip(rowState.BlockedTooltip);
+        }
     }
 
     private void EnsurePlannerCache()
@@ -551,6 +609,8 @@ public sealed class MainWindow : Window
         var progress = row.Progress;
         var eta = BuildEtaInfo(progress, dailyStatus);
         var visualState = GetVisualState(row);
+        var blockedInlineText = BuildBlockedInlineText(row);
+        var blockedTooltip = BuildBlockedTooltip(row);
         return new RowViewState(
             row,
             GetRecommendationScore(row),
@@ -562,7 +622,43 @@ public sealed class MainWindow : Window
             BuildEtaSummaryText(eta),
             BuildEtaDetailText(eta),
             BuildEtaTooltipText(eta),
-            GetRankUpDistance(progress) > 0 && GetRankUpDistance(progress) <= NearRankUpThresholdReputation);
+            GetRankUpDistance(progress) > 0 && GetRankUpDistance(progress) <= NearRankUpThresholdReputation,
+            blockedInlineText,
+            blockedTooltip);
+    }
+
+    private static string BuildBlockedInlineText(SocietyPlannerRow row)
+    {
+        if (row.IsActionable || row.Progress.IsMaxRank)
+        {
+            return string.Empty;
+        }
+
+        return row.DailyStatus.Readiness switch
+        {
+            DailyQuestReadiness.Unconfigured => "Blocked: setup needed",
+            DailyQuestReadiness.Unavailable => "Blocked: automation unavailable",
+            DailyQuestReadiness.LockedOrUnavailable => "Blocked: locked or unavailable",
+            DailyQuestReadiness.NoneAvailable => "Blocked: no daily available",
+            _ => "Blocked: not currently actionable",
+        };
+    }
+
+    private static string BuildBlockedTooltip(SocietyPlannerRow row)
+    {
+        if (row.IsActionable || row.Progress.IsMaxRank)
+        {
+            return string.Empty;
+        }
+
+        return row.DailyStatus.Readiness switch
+        {
+            DailyQuestReadiness.Unconfigured => "Complete Questionable setup for this quest range, then retry automation.",
+            DailyQuestReadiness.Unavailable => "Questionable IPC is unavailable. Enable Questionable for automation, or continue manually.",
+            DailyQuestReadiness.LockedOrUnavailable => "Quest is locked or unobtainable right now. Check prerequisites or wait for daily refresh.",
+            DailyQuestReadiness.NoneAvailable => "No obtainable daily right now. Try again after reset.",
+            _ => row.DailyStatus.StatusMessage,
+        };
     }
 
     private static string BuildButtonLabel(SocietyProgress progress, DailyQuestStatus dailyStatus)
@@ -1029,7 +1125,9 @@ public sealed class MainWindow : Window
         string EtaSummary,
         string EtaDetail,
         string EtaTooltip,
-        bool IsNearRankUp);
+        bool IsNearRankUp,
+        string BlockedInlineText,
+        string BlockedTooltip);
 
     private sealed record PlannerViewCache(
         RowViewState[] VisibleRows,
