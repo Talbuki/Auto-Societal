@@ -20,14 +20,15 @@ public sealed class Plugin : IDalamudPlugin
         IDalamudPluginInterface pluginInterface,
         ICommandManager commandManager,
         IDataManager dataManager,
-        IUnlockState unlockState)
+        IUnlockState unlockState,
+        IPlayerState playerState)
     {
         this.pluginInterface = pluginInterface;
 
         Configuration = pluginInterface.GetPluginConfig() as Configuration ?? new Configuration();
         this.reputationService = new ReputationService();
         this.automationService = new QuestionableAutomationService(pluginInterface);
-        this.achievementTrackingService = new AchievementTrackingService(dataManager, unlockState);
+        this.achievementTrackingService = new AchievementTrackingService(dataManager, unlockState, playerState, Configuration, pluginInterface);
         this.mainWindow = new MainWindow(Configuration, pluginInterface, this.reputationService, this.automationService, this.achievementTrackingService)
         {
             IsOpen = Configuration.IsMainWindowOpen,

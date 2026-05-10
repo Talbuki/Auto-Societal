@@ -1,5 +1,6 @@
 using Dalamud.Configuration;
 using Dalamud.Plugin;
+using SocietalReputation.Models;
 
 namespace SocietalReputation;
 
@@ -18,8 +19,28 @@ public sealed class Configuration : IPluginConfiguration
 
     public SocietySortMode SortMode { get; set; } = SocietySortMode.Recommended;
 
+    public Dictionary<string, CharacterAchievementCache> AchievementCacheByCharacter { get; set; } = new(StringComparer.Ordinal);
+
     public void Save(IDalamudPluginInterface pluginInterface)
     {
         pluginInterface.SavePluginConfig(this);
     }
+}
+
+[Serializable]
+public sealed class CharacterAchievementCache
+{
+    public Dictionary<EAlliedSociety, CachedSocietyAchievementStatus> Societies { get; set; } = [];
+
+    public DateTime LastUpdatedUtc { get; set; } = DateTime.UtcNow;
+}
+
+[Serializable]
+public sealed class CachedSocietyAchievementStatus
+{
+    public SocietyAchievementState State { get; set; } = SocietyAchievementState.Unknown;
+
+    public int CompletedCount { get; set; }
+
+    public int TotalCount { get; set; }
 }

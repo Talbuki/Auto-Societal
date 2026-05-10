@@ -1,3 +1,4 @@
+using Dalamud.Plugin;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using SocietalReputation.Models;
@@ -7,8 +8,12 @@ namespace SocietalReputation.Services;
 public sealed class AchievementTrackingService
 {
     private const string AchievementListSetupMessage = "Open the in-game Achievements window once to load tracked achievement data.";
+    private const string CachedAchievementMessage = "Showing last known achievement progress for this character. Open the in-game Achievements window to refresh.";
 
     private readonly IUnlockState unlockState;
+    private readonly IPlayerState playerState;
+    private readonly Configuration configuration;
+    private readonly IDalamudPluginInterface pluginInterface;
     private readonly IReadOnlyDictionary<EAlliedSociety, uint[]> trackedAchievementIds =
         new Dictionary<EAlliedSociety, uint[]>
         {
@@ -36,9 +41,17 @@ public sealed class AchievementTrackingService
 
     private readonly IReadOnlyDictionary<uint, Achievement> achievementsById;
 
-    public AchievementTrackingService(IDataManager dataManager, IUnlockState unlockState)
+    public AchievementTrackingService(
+        IDataManager dataManager,
+        IUnlockState unlockState,
+        IPlayerState playerState,
+        Configuration configuration,
+        IDalamudPluginInterface pluginInterface)
     {
         this.unlockState = unlockState;
+        this.playerState = playerState;
+        this.configuration = configuration;
+        this.pluginInterface = pluginInterface;
         this.achievementsById = dataManager.GetExcelSheet<Achievement>()?
             .ToDictionary(achievement => achievement.RowId)
             ?? new Dictionary<uint, Achievement>();
@@ -50,19 +63,65 @@ public sealed class AchievementTrackingService
         var totalCompleted = 0;
         var totalTracked = 0;
         var fullyCompletedSocieties = 0;
+        var characterCache = GetActiveCharacterCache();
+        var usedCachedData = false;
+        var isLoaded = false;
+        var cacheChanged = false;
 
         try
         {
-            var isLoaded = this.unlockState.IsAchievementListLoaded;
+            isLoaded = this.unlockState.IsAchievementListLoaded;
             foreach (var society in societies)
             {
+                var usedCacheForSociety = false;
                 var status = isLoaded
                     ? BuildLoadedStatus(society.Id)
-                    : BuildUnknownStatus(society.Id);
+                    : BuildCachedOrUnknownStatus(society.Id, characterCache, out usedCacheForSociety);
 
                 statuses[society.Id] = status;
                 totalCompleted += status.CompletedCount;
                 totalTracked += status.TotalCount;
+                usedCachedData |= usedCacheForSociety;
+
+                if (isLoaded)
+                {
+                    cacheChanged |= UpdateCharacterCacheEntry(characterCache, society.Id, status);
+                }
+
+                if (status.State == SocietyAchievementState.Complete)
+                {
+                    fullyCompletedSocieties++;
+                }
+            }
+
+            if (isLoaded && cacheChanged)
+            {
+                SaveConfiguration();
+            }
+
+            var statusMessage = isLoaded
+                ? $"{totalCompleted}/{totalTracked} tracked achievement milestones complete."
+                : usedCachedData
+                    ? CachedAchievementMessage
+                    : AchievementListSetupMessage;
+
+            return new AchievementSnapshot(
+                statuses,
+                totalCompleted,
+                totalTracked,
+                fullyCompletedSocieties,
+                isLoaded,
+                statusMessage);
+        }
+        catch (Exception)
+        {
+            foreach (var society in societies)
+            {
+                var status = BuildCachedOrUnknownStatus(society.Id, characterCache, out var usedCacheForSociety);
+                statuses[society.Id] = status;
+                totalCompleted += status.CompletedCount;
+                totalTracked += status.TotalCount;
+                usedCachedData |= usedCacheForSociety;
                 if (status.State == SocietyAchievementState.Complete)
                 {
                     fullyCompletedSocieties++;
@@ -74,27 +133,10 @@ public sealed class AchievementTrackingService
                 totalCompleted,
                 totalTracked,
                 fullyCompletedSocieties,
-                isLoaded,
-                isLoaded
-                    ? $"{totalCompleted}/{totalTracked} tracked achievement milestones complete."
-                    : AchievementListSetupMessage);
-        }
-        catch (Exception)
-        {
-            foreach (var society in societies)
-            {
-                var status = BuildUnknownStatus(society.Id);
-                statuses[society.Id] = status;
-                totalTracked += status.TotalCount;
-            }
-
-            return new AchievementSnapshot(
-                statuses,
-                0,
-                totalTracked,
-                0,
                 false,
-                AchievementListSetupMessage);
+                usedCachedData
+                    ? CachedAchievementMessage
+                    : AchievementListSetupMessage);
         }
     }
 
@@ -121,6 +163,103 @@ public sealed class AchievementTrackingService
     private SocietyAchievementStatus BuildUnknownStatus(EAlliedSociety societyId)
     {
         return SocietyAchievementStatus.CreateUnknown(GetTrackedAchievements(societyId, allowCompletionChecks: false));
+    }
+
+    private SocietyAchievementStatus BuildCachedOrUnknownStatus(
+        EAlliedSociety societyId,
+        CharacterAchievementCache? characterCache,
+        out bool usedCachedData)
+    {
+        usedCachedData = false;
+        if (characterCache == null || !characterCache.Societies.TryGetValue(societyId, out var cachedStatus))
+        {
+            return BuildUnknownStatus(societyId);
+        }
+
+        usedCachedData = true;
+        var trackedAchievements = GetTrackedAchievements(societyId, allowCompletionChecks: false);
+        var cappedTotal = Math.Max(0, Math.Min(cachedStatus.TotalCount, trackedAchievements.Count));
+        var cappedCompleted = Math.Max(0, Math.Min(cachedStatus.CompletedCount, cappedTotal));
+        var state = cappedTotal == 0
+            ? SocietyAchievementState.Unknown
+            : cappedCompleted == 0
+                ? SocietyAchievementState.Incomplete
+                : cappedCompleted >= cappedTotal
+                    ? SocietyAchievementState.Complete
+                    : SocietyAchievementState.Partial;
+        var statusMessage = cappedTotal == 0
+            ? "No tracked achievements."
+            : $"Achievements: {cappedCompleted}/{cappedTotal} complete (last known)";
+
+        return new SocietyAchievementStatus(
+            state,
+            cappedCompleted,
+            cappedTotal,
+            trackedAchievements,
+            statusMessage);
+    }
+
+    private CharacterAchievementCache? GetActiveCharacterCache()
+    {
+        var key = GetCharacterKey();
+        if (key == null)
+        {
+            return null;
+        }
+
+        if (!this.configuration.AchievementCacheByCharacter.TryGetValue(key, out var cache))
+        {
+            cache = new CharacterAchievementCache();
+            this.configuration.AchievementCacheByCharacter[key] = cache;
+        }
+
+        return cache;
+    }
+
+    private string? GetCharacterKey()
+    {
+        if (!this.playerState.IsLoaded || this.playerState.ContentId == 0)
+        {
+            return null;
+        }
+
+        var worldId = this.playerState.HomeWorld.RowId;
+        return $"{this.playerState.ContentId}:{worldId}";
+    }
+
+    private static bool UpdateCharacterCacheEntry(
+        CharacterAchievementCache? characterCache,
+        EAlliedSociety societyId,
+        SocietyAchievementStatus status)
+    {
+        if (characterCache == null)
+        {
+            return false;
+        }
+
+        var changed = !characterCache.Societies.TryGetValue(societyId, out var existing)
+            || existing.State != status.State
+            || existing.CompletedCount != status.CompletedCount
+            || existing.TotalCount != status.TotalCount;
+
+        characterCache.Societies[societyId] = new CachedSocietyAchievementStatus
+        {
+            State = status.State,
+            CompletedCount = status.CompletedCount,
+            TotalCount = status.TotalCount,
+        };
+
+        if (changed)
+        {
+            characterCache.LastUpdatedUtc = DateTime.UtcNow;
+        }
+
+        return changed;
+    }
+
+    private void SaveConfiguration()
+    {
+        this.configuration.Save(this.pluginInterface);
     }
 
     private IReadOnlyList<TrackedAchievementInfo> GetTrackedAchievements(EAlliedSociety societyId, bool allowCompletionChecks)
