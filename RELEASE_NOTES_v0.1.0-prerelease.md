@@ -19,10 +19,10 @@ First public GitHub prerelease of `Societal Reputation`.
 
 ## Release Assets
 
-- `SocietalReputation.zip`
+- Published install/update artifact for Dalamud custom repositories
 - `repo.json` for custom repository hosting
 
-`SocietalReputation.zip` should contain these files at the ZIP root:
+The published install artifact should contain these files at the package root:
 
 - `SocietalReputation.dll`
 - `SocietalReputation.json`

@@ -34,37 +34,28 @@ This `v0.1.0` build is intended as a GitHub prerelease. The core planner is usab
 
 ## GitHub Prerelease Assets
 
-Use the built plugin files from the output directory as the release payload:
+Use the built plugin files from the output directory to assemble the published release artifact:
 
 - `SocietalReputation.dll`
 - `SocietalReputation.json`
 
-Do not include transient local build files or source-control metadata in the GitHub release archive.
-
-### ZIP Layout
-
-Package the prerelease as `SocietalReputation.zip` with these files at the root of the archive:
-
-- `SocietalReputation.dll`
-- `SocietalReputation.json`
-
-Do not nest the files inside an extra folder in the ZIP.
+Do not commit release binaries, transient local build files, or source-control metadata to this repository.
 
 ## Custom Repository Install
 
 If you want testers to install from a custom repo instead of a dev path:
 
 1. Create a GitHub prerelease tagged `v0.1.0-prerelease`.
-2. Upload `SocietalReputation.zip` to that release.
+2. Publish the packaged plugin artifact required by Dalamud for install/update downloads.
 3. Host the root-level [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) from a public raw URL or GitHub Pages.
 4. Tell testers to copy that public `repo.json` URL.
 5. In XIVLauncher, open `Settings` -> `Experimental`, add the custom plugin repository URL, then refresh the plugin installer.
 
-The repository entry already points to:
+The current repository entry still points to the published release artifact used for custom-repo installs:
 
 - `https://github.com/Talbuki/Auto-Societal/releases/download/v0.1.0-prerelease/SocietalReputation.zip`
 
-If you change the release tag, ZIP name, or hosting path, update [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) to match before sharing it.
+If you change the release tag or hosting path, update [repo.json](/c:/Users/darre/Desktop/FF14%20Plugins/repo.json:1) to match before sharing it.
 
 ## Repository
 
