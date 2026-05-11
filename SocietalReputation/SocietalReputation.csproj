@@ -9,4 +9,7 @@
     <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Dalamud.NET.Sdk" Version="15.0.0" />
+  </ItemGroup>
 </Project>

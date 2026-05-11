@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Dependency Metadata
+
+- Added an explicit `PackageReference` for `Dalamud.NET.Sdk` version `15.0.0` in `SocietalReputation.csproj`.
+- Updated `packages.lock.json` to record `Dalamud.NET.Sdk` as a direct dependency for the `net10.0-windows7.0` target.
+- Kept the change limited to package/dependency metadata; no plugin runtime behavior is described by this update.
+
 ## v1.0.1 and Release Automation Updates
 
 Changes in this entry cover repository activity from `v1.0.0` through the current `HEAD`. This summary is limited to repo history and release-process updates; it does not include terminal activity or build verification from outside the committed changes.
