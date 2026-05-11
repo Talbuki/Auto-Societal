@@ -5,6 +5,7 @@ public enum DailyQuestReadiness
     Unconfigured,
     Unavailable,
     LockedOrUnavailable,
+    PickupPending,
     InProgress,
     ReadyToTurnIn,
     Ready,

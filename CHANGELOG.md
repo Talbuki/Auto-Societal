@@ -8,7 +8,13 @@ Changes in this entry cover repository activity from `v1.0.0` through the curren
 
 - Bumped the plugin version in `SocietalReputation.csproj` from `0.1.0` to `1.0.1`.
 - Updated `pluginmaster.json` to match the packaged manifest version by changing `AssemblyVersion` from `0.1.0.0` to `1.0.1.0`.
-- Kept the scope of this release metadata-focused: there are no plugin source-code changes in this diff range, so no new gameplay or UI behavior is implied by this changelog.
+
+### Automation / Planner Behavior
+
+- Added a dedicated partial-pickup state for society dailies so the planner no longer treats a society as fully actionable while Questionable is still accepting the remaining available quests.
+- Deferred readiness-driven `InProgress` / `ReadyToTurnIn` behavior until daily pickup is complete for the current batch, defined as either `3` accepted quests or `0` ready quests remaining.
+- Updated the planner UI to show this phase as pickup-in-progress with an `Accept remaining quests` action, neutral row styling, and messaging that directs the user to finish pickups before continuing objectives.
+- Kept the change wired through shared daily-status evaluation so recommendation scoring and readiness-based alerts do not promote partially accepted societies as if pickup were already finished.
 
 ### Build / Packaging / Distribution
 

@@ -688,6 +688,7 @@ public sealed class MainWindow : Window
             DailyQuestReadiness.Unconfigured => "Blocked: setup needed",
             DailyQuestReadiness.Unavailable => "Blocked: automation unavailable",
             DailyQuestReadiness.LockedOrUnavailable => "Blocked: locked or unavailable",
+            DailyQuestReadiness.PickupPending => "Pickup pending",
             DailyQuestReadiness.NoneAvailable => "Blocked: no daily available",
             _ => "Blocked: not currently actionable",
         };
@@ -705,6 +706,7 @@ public sealed class MainWindow : Window
             DailyQuestReadiness.Unconfigured => "Complete Questionable setup for this quest range, then retry automation.",
             DailyQuestReadiness.Unavailable => "Questionable IPC is unavailable. Enable Questionable for automation, or continue manually.",
             DailyQuestReadiness.LockedOrUnavailable => "Quest is locked or unobtainable right now. Check prerequisites or wait for daily refresh.",
+            DailyQuestReadiness.PickupPending => row.DailyStatus.StatusMessage,
             DailyQuestReadiness.NoneAvailable => "No obtainable daily right now. Try again after reset.",
             _ => row.DailyStatus.StatusMessage,
         };
@@ -714,6 +716,7 @@ public sealed class MainWindow : Window
     {
         return dailyStatus.Readiness switch
         {
+            DailyQuestReadiness.PickupPending => $"Accept remaining quests###start-daily-{(byte)progress.Society.Id}",
             DailyQuestReadiness.InProgress => $"Continue daily###start-daily-{(byte)progress.Society.Id}",
             DailyQuestReadiness.ReadyToTurnIn => $"Hand-in ready###start-daily-{(byte)progress.Society.Id}",
             _ when progress.AcceptedDailyQuestCount > 0 => $"Resume daily###start-daily-{(byte)progress.Society.Id}",
@@ -725,6 +728,7 @@ public sealed class MainWindow : Window
     {
         return dailyStatus.Readiness switch
         {
+            DailyQuestReadiness.PickupPending => $"{dailyStatus.AcceptedQuestCount} accepted, {dailyStatus.ReadyQuestCount} still ready to accept",
             DailyQuestReadiness.ReadyToTurnIn => dailyStatus.ReadyQuestCount > 0
                 ? $"{dailyStatus.CompletedQuestCount} complete, {dailyStatus.ReadyQuestCount} still ready to accept, hand-in after pickups"
                 : $"{dailyStatus.CompletedQuestCount} complete, ready to hand in",
@@ -747,6 +751,7 @@ public sealed class MainWindow : Window
         {
             DailyQuestReadiness.Ready => 250,
             DailyQuestReadiness.InProgress => 200,
+            DailyQuestReadiness.PickupPending => 125,
             DailyQuestReadiness.LockedOrUnavailable => -100,
             DailyQuestReadiness.Unavailable => -250,
             DailyQuestReadiness.Unconfigured => -350,
@@ -773,8 +778,9 @@ public sealed class MainWindow : Window
             DailyQuestReadiness.Unconfigured => 1,
             DailyQuestReadiness.LockedOrUnavailable => 2,
             DailyQuestReadiness.NoneAvailable => 3,
-            DailyQuestReadiness.InProgress => 4,
-            DailyQuestReadiness.Ready => 5,
+            DailyQuestReadiness.PickupPending => 4,
+            DailyQuestReadiness.InProgress => 5,
+            DailyQuestReadiness.Ready => 6,
             _ => 6,
         };
     }
@@ -1061,6 +1067,7 @@ public sealed class MainWindow : Window
         return row.DailyStatus.Readiness switch
         {
             DailyQuestReadiness.ReadyToTurnIn => RowVisualState.Ready,
+            DailyQuestReadiness.PickupPending => RowVisualState.Neutral,
             DailyQuestReadiness.InProgress => RowVisualState.InProgress,
             DailyQuestReadiness.LockedOrUnavailable or DailyQuestReadiness.Unavailable or DailyQuestReadiness.Unconfigured => RowVisualState.Blocked,
             _ => RowVisualState.Neutral,

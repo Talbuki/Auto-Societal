@@ -273,11 +273,14 @@ public sealed class QuestionableAutomationService
         try
         {
             var evaluation = EvaluateSocietyQuests(society);
-            var readiness = evaluation.AcceptedQuestCount > 0
-                ? evaluation.AllAcceptedQuestsComplete
-                    ? DailyQuestReadiness.ReadyToTurnIn
-                    : DailyQuestReadiness.InProgress
-                : evaluation.ReadyQuestCount > 0
+            var pickupComplete = evaluation.AcceptedQuestCount >= PerSocietyDailyQuestLimit || evaluation.ReadyQuestCount == 0;
+            var readiness = evaluation.AcceptedQuestCount > 0 && !pickupComplete
+                ? DailyQuestReadiness.PickupPending
+                : evaluation.AcceptedQuestCount > 0
+                    ? evaluation.AllAcceptedQuestsComplete
+                        ? DailyQuestReadiness.ReadyToTurnIn
+                        : DailyQuestReadiness.InProgress
+                    : evaluation.ReadyQuestCount > 0
                     ? DailyQuestReadiness.Ready
                     : evaluation.BlockedQuestCount > 0
                         ? DailyQuestReadiness.LockedOrUnavailable
@@ -402,6 +405,12 @@ public sealed class QuestionableAutomationService
     {
         if (evaluation.AcceptedQuestCount > 0)
         {
+            var pickupComplete = evaluation.AcceptedQuestCount >= PerSocietyDailyQuestLimit || evaluation.ReadyQuestCount == 0;
+            if (!pickupComplete)
+            {
+                return $"{evaluation.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, {evaluation.ReadyQuestCount} still ready to accept before continuing objectives.";
+            }
+
             if (evaluation.AllAcceptedQuestsComplete)
             {
                 return evaluation.ReadyQuestCount > 0

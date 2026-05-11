@@ -4,7 +4,9 @@ internal static class SocietyPlannerRules
 {
     public static bool IsActionable(SocietyProgress progress, DailyQuestStatus dailyStatus)
     {
-        return progress.IsUnlocked && dailyStatus.CanStartNextQuest;
+        return progress.IsUnlocked
+            && dailyStatus.CanStartNextQuest
+            && dailyStatus.Readiness != DailyQuestReadiness.PickupPending;
     }
 
     public static bool IsRankUpAvailable(SocietyProgress progress)
