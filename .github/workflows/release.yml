@@ -31,16 +31,38 @@ jobs:
       - name: Build Release
         run: dotnet build SocietalReputation.sln --configuration Release --no-restore
 
-      - name: Verify packaged artifact
+      - name: Validate packaged artifact and manifest metadata
         shell: pwsh
         run: |
-          $artifact = "SocietalReputation/bin/Release/SocietalReputation/latest.zip"
-          if (-not (Test-Path $artifact)) {
-            throw "Expected packaged artifact not found at $artifact"
-          }
+          ./scripts/Validate-PluginRelease.ps1
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           files: SocietalReputation/bin/Release/SocietalReputation/latest.zip
           generate_release_notes: true
+          overwrite_files: true
+
+      - name: Verify published download URL
+        shell: pwsh
+        run: |
+          $pluginEntry = (Get-Content pluginmaster.json | ConvertFrom-Json)[0]
+          $downloadUrl = $pluginEntry.DownloadLinkInstall
+
+          for ($attempt = 1; $attempt -le 6; $attempt++) {
+            try {
+              $response = Invoke-WebRequest -Uri $downloadUrl -Method Head
+              if ($response.StatusCode -eq 200) {
+                Write-Host "Verified published download URL: $downloadUrl"
+                exit 0
+              }
+            }
+            catch {
+              Write-Host "Attempt $attempt failed for $downloadUrl"
+              if ($attempt -eq 6) {
+                throw
+              }
+            }
+
+            Start-Sleep -Seconds 10
+          }
