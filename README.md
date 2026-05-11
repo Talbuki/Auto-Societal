@@ -26,4 +26,4 @@ The installer feed is the repository JSON above. Dalamud reads that feed, then d
 
 Pushing `main` republishes the downloadable plugin package. Version tags are optional and no longer control the live Dalamud artifact. If the installer returns `404`, the stable `latest` release asset is missing or the GitHub release has not finished publishing yet.
 
-This repository no longer carries a checked-in `NuGet.config`. CI provides the required package sources during restore. For local builds on a fresh machine, add the NuGet and Dalamud feeds globally or pass them explicitly to `dotnet restore`.
+This repository carries a checked-in `NuGet.config` for NuGet audit sources only. Package restore sources are still provided by CI or must be added globally or passed explicitly to `dotnet restore` for local builds on a fresh machine.

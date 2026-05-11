@@ -13,6 +13,7 @@
 - Removed the repo-local `NuGet.config` file.
 - Moved package source declaration for restore into the GitHub Actions workflow so CI remains self-contained without depending on machine-level source configuration.
 - Documented that local builds now require either global NuGet source setup or explicit restore sources on the command line.
+- Reintroduced a minimal repo-local `NuGet.config` for `auditSources` only so NuGet audit uses `nuget.org` vulnerability data and does not emit `NU1900` for the Dalamud feed.
 
 ## v1.0.1 and Release Automation Updates
 
