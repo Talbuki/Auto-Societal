@@ -153,11 +153,11 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled($"Sort: {this.configuration.SortMode} {(this.configuration.SortAscending ? "↑" : "↓")}");
         DrawAutomationHelpHint(cache);
 
-        if (ImGui.Button("Start recommended daily"))
+        if (ImGui.Button("Accept all available quests (recommended)"))
         {
             var recommendation = cache.RecommendationRow;
             this.automationStatus = recommendation == null
-                ? "No recommended daily is currently startable."
+                ? "No recommended society currently has available quests to accept."
                 : this.automationService.AcceptAllAvailableDailies(recommendation.Row.Progress.Society).Message;
             this.automationService.InvalidateStatusCache();
             InvalidateRawData();
@@ -279,7 +279,7 @@ public sealed class MainWindow : Window
         {
             "Questionable: unavailable" => "Automation setup: enable Questionable and complete its setup to use start/continue actions.",
             "Questionable: running" => "Automation is currently running. Use Stop automation to pause or switch targets.",
-            _ => "Automation ready: Start recommended daily follows the top recommendation.",
+            _ => "Automation ready: Accept all available quests (recommended) follows the top recommendation.",
         };
 
         ImGui.TextDisabled(hint);
@@ -611,7 +611,7 @@ public sealed class MainWindow : Window
         {
             return new PlannerRecommendation(
                 null,
-                "No recommended daily is available.",
+                "No recommended society has available quests to accept.",
                 "Try changing the focus filter or waiting for new dailies to unlock.");
         }
 
@@ -717,7 +717,7 @@ public sealed class MainWindow : Window
             DailyQuestReadiness.InProgress => $"Continue daily###start-daily-{(byte)progress.Society.Id}",
             DailyQuestReadiness.ReadyToTurnIn => $"Hand-in ready###start-daily-{(byte)progress.Society.Id}",
             _ when progress.AcceptedDailyQuestCount > 0 => $"Resume daily###start-daily-{(byte)progress.Society.Id}",
-            _ => $"Start daily###start-daily-{(byte)progress.Society.Id}",
+            _ => $"Accept all available quests###start-daily-{(byte)progress.Society.Id}",
         };
     }
 

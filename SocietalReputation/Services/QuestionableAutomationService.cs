@@ -138,78 +138,97 @@ public sealed class QuestionableAutomationService
                 }
 
                 var canAcceptMore = evaluation.AcceptedQuestCount < PerSocietyDailyQuestLimit;
-                if (canAcceptMore && evaluation.FirstReadyQuestId is ushort readyQuestId)
+                if (!canAcceptMore || evaluation.FirstReadyQuestId is not ushort readyQuestId)
                 {
-                    var quest = readyQuestId.ToString();
-                    if (!this.startQuest.InvokeFunc(quest))
-                    {
-                        InvalidateStatusCache();
-                        return RecordAutomationResult(BuildAcceptanceFailureResult(
-                            society,
-                            acceptedThisRun,
-                            readyQuestId,
-                            "Questionable could not start the ready quest."));
-                    }
+                    break;
+                }
 
+                var quest = readyQuestId.ToString();
+                if (!this.startQuest.InvokeFunc(quest))
+                {
                     InvalidateStatusCache();
-                    if (!WaitForQuestAcceptance(society, readyQuestId, evaluation.AcceptedQuestCount))
-                    {
-                        return RecordAutomationResult(BuildAcceptanceFailureResult(
-                            society,
-                            acceptedThisRun,
-                            readyQuestId,
-                            "Timed out waiting for the quest to be accepted."));
-                    }
-
-                    acceptedThisRun++;
-                    MarkAutomationProgress();
-                    continue;
+                    return RecordAutomationResult(BuildAcceptanceFailureResult(
+                        society,
+                        acceptedThisRun,
+                        readyQuestId,
+                        "Questionable could not start the ready quest."));
                 }
 
-                if (evaluation.AcceptedQuestCount > 0 && !evaluation.AllAcceptedQuestsComplete)
+                InvalidateStatusCache();
+                if (!WaitForQuestAcceptance(society, readyQuestId, evaluation.AcceptedQuestCount))
                 {
-                    if (evaluation.FirstAcceptedIncompleteQuestId is not ushort questToResumeId)
-                    {
-                        return RecordAutomationResult(new AutomationResult(
-                            false,
-                            $"{society.Name} has accepted quests in progress, but none could be resumed.",
-                            evaluation.AcceptedQuestCount));
-                    }
-
-                    if (!this.startQuest.InvokeFunc(questToResumeId.ToString()))
-                    {
-                        InvalidateStatusCache();
-                        return RecordAutomationResult(BuildAcceptanceFailureResult(
-                            society,
-                            acceptedThisRun,
-                            questToResumeId,
-                            "Questionable could not resume the accepted quest."));
-                    }
-
-                    InvalidateStatusCache();
-                    MarkAutomationProgress();
-                    return RecordAutomationResult(new AutomationResult(
-                        true,
-                        BuildAutomationProgressMessage(society, evaluation.AcceptedQuestCount, acceptedThisRun, "Continuing accepted quests before turn-in."),
-                        evaluation.AcceptedQuestCount));
+                    return RecordAutomationResult(BuildAcceptanceFailureResult(
+                        society,
+                        acceptedThisRun,
+                        readyQuestId,
+                        "Timed out waiting for the quest to be accepted."));
                 }
 
-                if (evaluation.AcceptedQuestCount > 0 && evaluation.AllAcceptedQuestsComplete)
-                {
-                    MarkAutomationProgress();
-                    return RecordAutomationResult(new AutomationResult(
-                        true,
-                        $"{society.Name} accepted quests are complete and ready to hand in.",
-                        evaluation.AcceptedQuestCount));
-                }
-
-                return acceptedThisRun > 0
-                    ? RecordAutomationResult(new AutomationResult(
-                        true,
-                        BuildAutomationProgressMessage(society, evaluation.AcceptedQuestCount, acceptedThisRun, "Finish accepted quests before turn-in."),
-                        evaluation.AcceptedQuestCount))
-                    : RecordAutomationResult(new AutomationResult(false, $"No available {society.Name} daily quest was found."));
+                acceptedThisRun++;
+                MarkAutomationProgress();
             }
+
+            var postPickupEvaluation = EvaluateSocietyQuests(society);
+            if (postPickupEvaluation.HadQuestDataError)
+            {
+                return RecordAutomationResult(new AutomationResult(false, QuestionableQuestDataError));
+            }
+
+            if (postPickupEvaluation.AcceptedQuestCount > 0 && postPickupEvaluation.FirstReadyQuestId is not null)
+            {
+                return RecordAutomationResult(new AutomationResult(
+                    acceptedThisRun > 0,
+                    BuildAutomationProgressMessage(
+                        society,
+                        postPickupEvaluation.AcceptedQuestCount,
+                        acceptedThisRun,
+                        "Waiting for remaining pickups to become accept-ready."),
+                    postPickupEvaluation.AcceptedQuestCount));
+            }
+
+            if (postPickupEvaluation.AcceptedQuestCount > 0 && !postPickupEvaluation.AllAcceptedQuestsComplete)
+            {
+                if (postPickupEvaluation.FirstAcceptedIncompleteQuestId is not ushort questToResumeId)
+                {
+                    return RecordAutomationResult(new AutomationResult(
+                        false,
+                        $"{society.Name} has accepted quests in progress, but none could be resumed.",
+                        postPickupEvaluation.AcceptedQuestCount));
+                }
+
+                if (!this.startQuest.InvokeFunc(questToResumeId.ToString()))
+                {
+                    InvalidateStatusCache();
+                    return RecordAutomationResult(BuildAcceptanceFailureResult(
+                        society,
+                        acceptedThisRun,
+                        questToResumeId,
+                        "Questionable could not resume the accepted quest."));
+                }
+
+                InvalidateStatusCache();
+                MarkAutomationProgress();
+                return RecordAutomationResult(new AutomationResult(
+                    true,
+                    BuildAutomationProgressMessage(society, postPickupEvaluation.AcceptedQuestCount, acceptedThisRun, "Continuing accepted quests after all available pickups."),
+                    postPickupEvaluation.AcceptedQuestCount));
+            }
+
+            if (postPickupEvaluation.AcceptedQuestCount > 0 && postPickupEvaluation.AllAcceptedQuestsComplete)
+            {
+                MarkAutomationProgress();
+                return RecordAutomationResult(new AutomationResult(
+                    true,
+                    $"{society.Name} accepted quests are complete and ready to hand in.",
+                    postPickupEvaluation.AcceptedQuestCount));
+            }
+
+            return acceptedThisRun > 0
+                ? RecordAutomationResult(new AutomationResult(
+                    true,
+                    BuildAutomationProgressMessage(society, postPickupEvaluation.AcceptedQuestCount, acceptedThisRun, "Finish accepted quests before turn-in."),
+                    postPickupEvaluation.AcceptedQuestCount))
+                : RecordAutomationResult(new AutomationResult(false, $"No available {society.Name} daily quest was found."));
         }
         catch (IpcError)
         {
@@ -396,7 +415,7 @@ public sealed class QuestionableAutomationService
             }
 
             return evaluation.ReadyQuestCount > 0
-                ? $"{evaluation.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, finish remaining objectives before turn-in."
+                ? $"{evaluation.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, pick up remaining available quests before continuing objectives."
                 : $"{evaluation.AcceptedQuestCount}/{PerSocietyDailyQuestLimit} accepted, keep working objectives.";
         }
 
