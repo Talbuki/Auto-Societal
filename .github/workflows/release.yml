@@ -1,0 +1,43 @@
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore SocietalReputation.sln
+
+      - name: Build Release
+        run: dotnet build SocietalReputation.sln --configuration Release --no-restore
+
+      - name: Verify packaged artifact
+        shell: pwsh
+        run: |
+          $artifact = "SocietalReputation/bin/Release/SocietalReputation/latest.zip"
+          if (-not (Test-Path $artifact)) {
+            throw "Expected packaged artifact not found at $artifact"
+          }
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: SocietalReputation/bin/Release/SocietalReputation/latest.zip
+          generate_release_notes: true
