@@ -26,7 +26,10 @@ jobs:
           dotnet-version: 10.0.x
 
       - name: Restore
-        run: dotnet restore SocietalReputation.sln
+        run: >
+          dotnet restore SocietalReputation.sln
+          --source https://api.nuget.org/v3/index.json
+          --source https://goatcorp.github.io/dalamud-distrib/nuget/index.json
 
       - name: Build Release
         run: dotnet build SocietalReputation.sln --configuration Release --no-restore
