@@ -13,6 +13,7 @@ public sealed class MainWindow : Window
     private const int DailyResetHourUtc = 15;
     private const int ConservativeReputationPerQuest = 60;
     private const int NearRankUpThresholdReputation = 240;
+    private const string AlertSettingsPopupId = "alert-settings-popup";
     private static readonly Vector2 FillWidthProgressBarSize = new(-1, 0);
 
     private readonly Configuration configuration;
@@ -84,7 +85,6 @@ public sealed class MainWindow : Window
 
         DrawPlannerControls(cache);
         DrawOnboardingWalkthrough();
-        DrawAlertsSection();
         DrawPlannerSummary(cache);
         DrawDiagnosticsPanel(cache);
 
@@ -151,6 +151,13 @@ public sealed class MainWindow : Window
         }
         ImGui.SameLine();
         ImGui.TextDisabled($"Sort: {this.configuration.SortMode} {(this.configuration.SortAscending ? "↑" : "↓")}");
+        ImGui.SameLine();
+        if (ImGui.SmallButton("⚙##alert-settings"))
+        {
+            ImGui.OpenPopup(AlertSettingsPopupId);
+        }
+        DrawTooltip("Open alert settings.");
+        DrawAlertSettingsPopup();
         DrawAutomationHelpHint(cache);
 
         if (ImGui.Button("Accept all available quests (recommended)"))
@@ -207,12 +214,15 @@ public sealed class MainWindow : Window
         ImGui.Separator();
     }
 
-    private void DrawAlertsSection()
+    private void DrawAlertSettingsPopup()
     {
-        if (!ImGui.CollapsingHeader("Alerts"))
+        if (!ImGui.BeginPopup(AlertSettingsPopupId))
         {
             return;
         }
+
+        ImGui.TextUnformatted("Alert settings");
+        ImGui.Separator();
 
         var enableToastAlerts = this.configuration.EnableToastAlerts;
         if (ImGui.Checkbox("Enable toast alerts", ref enableToastAlerts))
@@ -270,7 +280,7 @@ public sealed class MainWindow : Window
         }
         DrawTooltip("Alert when a previously blocked society becomes actionable.");
 
-        ImGui.Separator();
+        ImGui.EndPopup();
     }
 
     private void DrawAutomationHelpHint(PlannerViewCache cache)
