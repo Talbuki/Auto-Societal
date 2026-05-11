@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Plugin Feed
+
+- Added a second `pluginmaster.json` entry for `Botology` from `McVaxius/botology`.
+- Matched the feed metadata to Botology's published manifest, including `Author`, `InternalName`, `AssemblyVersion`, `Description`, `Punchline`, `Tags`, and `DalamudApiLevel`.
+- Pointed `DownloadLinkInstall` and `DownloadLinkUpdate` at Botology's currently published GitHub release asset for version `0.1.0.6`.
+
 ### Dependency Metadata
 
 - Added an explicit `PackageReference` for `Dalamud.NET.Sdk` version `15.0.0` in `SocietalReputation.csproj`.

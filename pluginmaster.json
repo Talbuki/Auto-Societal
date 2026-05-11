@@ -24,5 +24,31 @@
     "IsTestingExclusive": false,
     "DownloadLinkInstall": "https://github.com/Talbuki/Auto-Societal/releases/latest/download/latest.zip",
     "DownloadLinkUpdate": "https://github.com/Talbuki/Auto-Societal/releases/latest/download/latest.zip"
+  },
+  {
+    "Author": "DhogGPT",
+    "Name": "Botology",
+    "InternalName": "botology",
+    "AssemblyVersion": "0.1.0.6",
+    "Description": "Let's face it, you are a Botologist now, you need proper analysis of all of your tools so they work and play nice together.",
+    "ApplicableVersion": "any",
+    "RepoUrl": "https://github.com/McVaxius/botology",
+    "Tags": [
+      "ffxiv",
+      "botology",
+      "manager",
+      "dhog"
+    ],
+    "DalamudApiLevel": 15,
+    "LoadRequiredState": 0,
+    "LoadSync": false,
+    "CanUnloadAsync": false,
+    "LoadPriority": 0,
+    "Punchline": "Compatibility manager for semi-passive plugins and bot overlap warnings.",
+    "AcceptsFeedback": true,
+    "IsHide": false,
+    "IsTestingExclusive": false,
+    "DownloadLinkInstall": "https://github.com/McVaxius/botology/releases/download/v0.1.0.6/latest.zip",
+    "DownloadLinkUpdate": "https://github.com/McVaxius/botology/releases/download/v0.1.0.6/latest.zip"
   }
 ]
