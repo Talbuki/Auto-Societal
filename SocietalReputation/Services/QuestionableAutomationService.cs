@@ -304,31 +304,6 @@ public sealed class QuestionableAutomationService
         }
     }
 
-    public AutomationResult StartFirstAvailable(IEnumerable<SocietyInfo> societies, string sourceLabel)
-    {
-        if (!IsAvailable())
-        {
-            return RecordAutomationResult(new AutomationResult(false, "Questionable IPC is unavailable. Install/enable Questionable and complete its setup."));
-        }
-
-        foreach (var society in societies)
-        {
-            var status = GetDailyQuestStatus(society);
-            if (!status.CanStartNextQuest)
-            {
-                continue;
-            }
-
-            var result = AcceptAllAvailableDailies(society);
-            if (result.Success)
-            {
-                return RecordAutomationResult(new AutomationResult(true, $"{sourceLabel}: {result.Message}"));
-            }
-        }
-
-        return RecordAutomationResult(new AutomationResult(false, $"{sourceLabel}: no available daily quest was found."));
-    }
-
     public AutomationResult Stop()
     {
         try

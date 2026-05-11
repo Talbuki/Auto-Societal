@@ -164,24 +164,6 @@ public sealed class MainWindow : Window
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Start visible dailies"))
-        {
-            var visibleSocieties = new List<SocietyInfo>(cache.VisibleRows.Length);
-            for (var i = 0; i < cache.VisibleRows.Length; i++)
-            {
-                var rowState = cache.VisibleRows[i];
-                if (rowState.Row.IsActionable)
-                {
-                    visibleSocieties.Add(rowState.Row.Progress.Society);
-                }
-            }
-
-            this.automationStatus = this.automationService.StartFirstAvailable(visibleSocieties, "Visible list").Message;
-            this.automationService.InvalidateStatusCache();
-            InvalidateRawData();
-        }
-
-        ImGui.SameLine();
         if (ImGui.Button("Stop automation"))
         {
             this.automationStatus = this.automationService.Stop().Message;
@@ -297,7 +279,7 @@ public sealed class MainWindow : Window
         {
             "Questionable: unavailable" => "Automation setup: enable Questionable and complete its setup to use start/continue actions.",
             "Questionable: running" => "Automation is currently running. Use Stop automation to pause or switch targets.",
-            _ => "Automation ready: Start recommended daily follows the top recommendation; Start visible dailies uses the first actionable visible row.",
+            _ => "Automation ready: Start recommended daily follows the top recommendation.",
         };
 
         ImGui.TextDisabled(hint);
