@@ -1,26 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Plugin Feed
-
-- Added a second `pluginmaster.json` entry for `Botology` from `McVaxius/botology`.
-- Matched the feed metadata to Botology's published manifest, including `Author`, `InternalName`, `AssemblyVersion`, `Description`, `Punchline`, `Tags`, and `DalamudApiLevel`.
-- Pointed `DownloadLinkInstall` and `DownloadLinkUpdate` at Botology's currently published GitHub release asset for version `0.1.0.6`.
-
-### Dependency Metadata
-
-- Added an explicit `PackageReference` for `Dalamud.NET.Sdk` version `15.0.0` in `SocietalReputation.csproj`.
-- Updated `packages.lock.json` to record `Dalamud.NET.Sdk` as a direct dependency for the `net10.0-windows7.0` target.
-- Kept the change limited to package/dependency metadata; no plugin runtime behavior is described by this update.
-
-### Build Configuration
-
-- Removed the repo-local `NuGet.config` file.
-- Moved package source declaration for restore into the GitHub Actions workflow so CI remains self-contained without depending on machine-level source configuration.
-- Documented that local builds now require either global NuGet source setup or explicit restore sources on the command line.
-- Reintroduced a minimal repo-local `NuGet.config` for `auditSources` only so NuGet audit uses `nuget.org` vulnerability data and does not emit `NU1900` for the Dalamud feed.
-
 ## v1.0.1 and Release Automation Updates
 
 Changes in this entry cover repository activity from `v1.0.0` through the current `HEAD`. This summary is limited to repo history and release-process updates; it does not include terminal activity or build verification from outside the committed changes.
