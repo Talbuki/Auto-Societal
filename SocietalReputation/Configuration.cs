@@ -41,6 +41,14 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool NotifyPrerequisiteMet { get; set; }
 
+    public bool EnableAutomaticStartTime { get; set; }
+
+    public int AutomaticStartHourLocal { get; set; } = 15;
+
+    public int AutomaticStartMinuteLocal { get; set; }
+
+    public DateOnly? LastAutomaticStartDate { get; set; }
+
     public Dictionary<string, CharacterAchievementCache> AchievementCacheByCharacter { get; set; } = new(StringComparer.Ordinal);
 
     public void Save(IDalamudPluginInterface pluginInterface)

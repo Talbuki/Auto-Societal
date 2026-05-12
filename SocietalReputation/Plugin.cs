@@ -51,6 +51,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.OpenConfigUi += ToggleMainWindow;
         this.framework.Update += this.automationService.OnFrameworkUpdate;
         this.framework.Update += this.alertMonitorService.OnFrameworkUpdate;
+        this.framework.Update += this.mainWindow.OnFrameworkUpdate;
     }
 
     internal Configuration Configuration { get; }
@@ -65,6 +66,7 @@ public sealed class Plugin : IDalamudPlugin
         this.pluginInterface.UiBuilder.OpenConfigUi -= ToggleMainWindow;
         this.framework.Update -= this.automationService.OnFrameworkUpdate;
         this.framework.Update -= this.alertMonitorService.OnFrameworkUpdate;
+        this.framework.Update -= this.mainWindow.OnFrameworkUpdate;
 
         this.commandManager.Dispose();
         this.windowSystem.RemoveAllWindows();

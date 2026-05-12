@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.2
+
+### Daily Scheduled Auto-Start
+
+- Added a recurring daily auto-start option so the plugin can begin the recommended society automation at a user-configured local time.
+- Added scheduled start controls to the existing Settings popup, including enable/disable plus local hour and minute selection.
+- Moved the scheduler check onto the framework update path so timed starts can still trigger while the main window is closed.
+- Prevented duplicate starts by tracking the last successful automatic start date and only consuming the day after a successful launch.
+
 ## v1.2.1
 
 ### Header Help Popups

@@ -1,6 +1,7 @@
 using Dalamud.Bindings.ImGui;
 using Dalamud.Interface.Windowing;
 using Dalamud.Plugin;
+using Dalamud.Plugin.Services;
 using SocietalReputation.Models;
 using SocietalReputation.Services;
 using System.Numerics;
@@ -13,6 +14,7 @@ public sealed class MainWindow : Window
     private const int DailyResetHourUtc = 15;
     private const int ConservativeReputationPerQuest = 60;
     private const int NearRankUpThresholdReputation = 240;
+    private static readonly TimeSpan AutomaticStartPollInterval = TimeSpan.FromSeconds(1);
     private const string AlertSettingsPopupId = "alert-settings-popup";
     private const string KnownIssuesPopupId = "known-issues-popup";
     private const string PlannedUpdatesPopupId = "planned-updates-popup";
@@ -35,6 +37,7 @@ public sealed class MainWindow : Window
     private int rawDataVersion;
     private int viewDataVersion;
     private bool suppressHeaderSortSync;
+    private DateTime lastAutomaticStartCheckUtc = DateTime.MinValue;
 
     public MainWindow(
         Configuration configuration,
@@ -93,6 +96,18 @@ public sealed class MainWindow : Window
         DrawSummarySection(cache, snapshot, monitor);
         DrawTroubleshootingPanel(cache, monitor);
         DrawSocietyTable(cache);
+    }
+
+    public void OnFrameworkUpdate(IFramework framework)
+    {
+        if (this.lastAutomaticStartCheckUtc != DateTime.MinValue
+            && framework.LastUpdateUTC - this.lastAutomaticStartCheckUtc < AutomaticStartPollInterval)
+        {
+            return;
+        }
+
+        this.lastAutomaticStartCheckUtc = framework.LastUpdateUTC;
+        TryAutomaticTimedStart();
     }
 
     private void DrawModeHeader()
@@ -1319,6 +1334,29 @@ public sealed class MainWindow : Window
             SaveConfiguration();
         }
 
+        ImGui.Separator();
+
+        var enableAutomaticStartTime = this.configuration.EnableAutomaticStartTime;
+        if (ImGui.Checkbox("Automatically start at set time", ref enableAutomaticStartTime))
+        {
+            this.configuration.EnableAutomaticStartTime = enableAutomaticStartTime;
+            SaveConfiguration();
+        }
+
+        var automaticStartHourLocal = this.configuration.AutomaticStartHourLocal;
+        if (ImGui.SliderInt("Start hour", ref automaticStartHourLocal, 0, 23))
+        {
+            this.configuration.AutomaticStartHourLocal = automaticStartHourLocal;
+            SaveConfiguration();
+        }
+
+        var automaticStartMinuteLocal = this.configuration.AutomaticStartMinuteLocal;
+        if (ImGui.SliderInt("Start minute", ref automaticStartMinuteLocal, 0, 59))
+        {
+            this.configuration.AutomaticStartMinuteLocal = automaticStartMinuteLocal;
+            SaveConfiguration();
+        }
+
         ImGui.EndPopup();
     }
 
@@ -1455,6 +1493,51 @@ public sealed class MainWindow : Window
     {
         this.configuration.Save(this.pluginInterface);
         InvalidateView();
+    }
+
+    private void TryAutomaticTimedStart()
+    {
+        if (!this.configuration.EnableAutomaticStartTime)
+        {
+            return;
+        }
+
+        if (this.automationService.IsRunning())
+        {
+            return;
+        }
+
+        var now = DateTime.Now;
+        var today = DateOnly.FromDateTime(now);
+        if (this.configuration.LastAutomaticStartDate == today)
+        {
+            return;
+        }
+
+        var scheduledTime = new TimeSpan(this.configuration.AutomaticStartHourLocal, this.configuration.AutomaticStartMinuteLocal, 0);
+        if (now.TimeOfDay < scheduledTime)
+        {
+            return;
+        }
+
+        EnsurePlannerCache();
+        var recommendation = this.plannerCache?.RecommendationRow;
+        if (recommendation?.Row.DailyStatus.CanExecuteAction != true)
+        {
+            return;
+        }
+
+        var result = this.automationService.StartOrContinueDaily(recommendation.Row.Progress.Society);
+        this.automationService.InvalidateStatusCache();
+        InvalidateRawData();
+
+        if (!result.Success)
+        {
+            return;
+        }
+
+        this.configuration.LastAutomaticStartDate = today;
+        SaveConfiguration();
     }
 
     private void InvalidateRawData()

@@ -3,7 +3,7 @@
     "Author": "Talbuki",
     "Name": "Societal Reputation",
     "InternalName": "SocietalReputation",
-    "AssemblyVersion": "1.2.1.0",
+    "AssemblyVersion": "1.2.2.0",
     "Description": "Track Allied Society reputation, rank progress, daily quest readiness, and achievement milestones in one planner-focused Dalamud window. Optional Questionable integration can help start available society dailies.",
     "ApplicableVersion": "any",
     "RepoUrl": "https://github.com/Talbuki/Auto-Societal",
