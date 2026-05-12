@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.5
+
+### Ordered Multi-Society Auto-Start
+
+- Replaced the single scheduled society target with an ordered checklist of societies for auto-start.
+- Added checkbox-based multi-select scheduling plus `Up` and `Down` controls so players can choose the exact run order.
+- Changed timed automation to walk the checked societies in order, skip non-actionable entries, and only consume the day after at least one successful start.
+- Updated the live auto-start messaging to reflect multi-society scheduled automation instead of a single selected target.
+
 ## v1.2.4
 
 ### Dedicated Auto-Start Targeting

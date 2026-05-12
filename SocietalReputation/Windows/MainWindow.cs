@@ -1400,52 +1400,79 @@ public sealed class MainWindow : Window
             SaveConfiguration();
         }
 
-        var selectedSocietyId = this.configuration.AutomaticStartSocietyId;
-        var selectedSocietyName = GetAutomaticStartSocietyName(selectedSocietyId) ?? "Choose a society...";
-        if (ImGui.BeginCombo("Scheduled society", selectedSocietyName))
+        ImGui.Separator();
+        ImGui.TextUnformatted("Scheduled societies");
+
+        var progress = this.cachedSnapshot?.Progress;
+        if (progress != null)
         {
-            var noSelection = selectedSocietyId == null;
-            if (ImGui.Selectable("Choose a society...", noSelection))
+            for (var i = 0; i < progress.Count; i++)
             {
-                this.configuration.AutomaticStartSocietyId = null;
-                SaveConfiguration();
-            }
-
-            if (noSelection)
-            {
-                ImGui.SetItemDefaultFocus();
-            }
-
-            var progress = this.cachedSnapshot?.Progress;
-            if (progress != null)
-            {
-                for (var i = 0; i < progress.Count; i++)
+                var society = progress[i].Society;
+                var orderIndex = GetAutomaticStartOrderIndex(society.Id);
+                var isChecked = orderIndex >= 0;
+                var checkboxLabel = orderIndex >= 0
+                    ? $"{orderIndex + 1}. {society.Name}##auto-start-{society.Id}"
+                    : $"{society.Name}##auto-start-{society.Id}";
+                if (ImGui.Checkbox(checkboxLabel, ref isChecked))
                 {
-                    var society = progress[i].Society;
-                    var isSelected = selectedSocietyId == society.Id;
-                    if (ImGui.Selectable(society.Name, isSelected))
+                    if (isChecked)
                     {
-                        this.configuration.AutomaticStartSocietyId = society.Id;
-                        SaveConfiguration();
+                        AddAutomaticStartSociety(society.Id);
+                    }
+                    else
+                    {
+                        RemoveAutomaticStartSociety(society.Id);
+                    }
+                }
+
+                if (orderIndex >= 0)
+                {
+                    ImGui.SameLine();
+                    var canMoveUp = orderIndex > 0;
+                    if (!canMoveUp)
+                    {
+                        ImGui.BeginDisabled();
                     }
 
-                    if (isSelected)
+                    if (ImGui.SmallButton($"Up##auto-start-up-{society.Id}"))
                     {
-                        ImGui.SetItemDefaultFocus();
+                        MoveAutomaticStartSociety(orderIndex, orderIndex - 1);
+                        orderIndex--;
+                    }
+
+                    if (!canMoveUp)
+                    {
+                        ImGui.EndDisabled();
+                    }
+
+                    ImGui.SameLine();
+                    var canMoveDown = orderIndex < this.configuration.AutomaticStartSocietyOrder.Count - 1;
+                    if (!canMoveDown)
+                    {
+                        ImGui.BeginDisabled();
+                    }
+
+                    if (ImGui.SmallButton($"Down##auto-start-down-{society.Id}"))
+                    {
+                        MoveAutomaticStartSociety(orderIndex, orderIndex + 1);
+                    }
+
+                    if (!canMoveDown)
+                    {
+                        ImGui.EndDisabled();
                     }
                 }
             }
-
-            ImGui.EndCombo();
         }
 
-        if (selectedSocietyId == null)
+        if (this.configuration.AutomaticStartSocietyOrder.Count == 0)
         {
-            ImGui.TextDisabled("No society selected yet.");
+            ImGui.TextDisabled("No societies checked yet. Auto-start will do nothing until you enable at least one.");
         }
         else
         {
-            ImGui.TextDisabled($"Selected: {selectedSocietyName}");
+            ImGui.TextDisabled($"Run order: {string.Join(", ", GetAutomaticStartSocietyNames())}");
         }
 
         ImGui.EndPopup();
@@ -1513,7 +1540,7 @@ public sealed class MainWindow : Window
     {
         if (monitor.IsRunning)
         {
-            return "Quest automation is currently working on your selected society.";
+            return "Quest automation is currently working on one of your selected societies.";
         }
 
         return cache.AutomationState switch
@@ -1611,24 +1638,34 @@ public sealed class MainWindow : Window
             return;
         }
 
-        var selectedSocietyId = this.configuration.AutomaticStartSocietyId;
-        if (selectedSocietyId == null)
+        var scheduledSocieties = this.configuration.AutomaticStartSocietyOrder;
+        if (scheduledSocieties.Count == 0)
         {
             return;
         }
 
-        EnsurePlannerCache();
-        var selectedRow = GetRowState(selectedSocietyId.Value);
-        if (selectedRow?.Row.DailyStatus.CanExecuteAction != true)
+        var startedAnySociety = false;
+        var runOrder = scheduledSocieties.ToArray();
+        for (var i = 0; i < runOrder.Length; i++)
         {
-            return;
+            EnsurePlannerCache();
+            var selectedRow = GetRowState(runOrder[i]);
+            if (selectedRow?.Row.DailyStatus.CanExecuteAction != true)
+            {
+                continue;
+            }
+
+            var result = this.automationService.StartOrContinueDaily(selectedRow.Row.Progress.Society);
+            this.automationService.InvalidateStatusCache();
+            InvalidateRawData();
+
+            if (result.Success)
+            {
+                startedAnySociety = true;
+            }
         }
 
-        var result = this.automationService.StartOrContinueDaily(selectedRow.Row.Progress.Society);
-        this.automationService.InvalidateStatusCache();
-        InvalidateRawData();
-
-        if (!result.Success)
+        if (!startedAnySociety)
         {
             return;
         }
@@ -1651,15 +1688,59 @@ public sealed class MainWindow : Window
         return null;
     }
 
-    private string? GetAutomaticStartSocietyName(EAlliedSociety? societyId)
+    private int GetAutomaticStartOrderIndex(EAlliedSociety societyId)
     {
-        if (societyId == null)
+        return this.configuration.AutomaticStartSocietyOrder.IndexOf(societyId);
+    }
+
+    private IReadOnlyList<string> GetAutomaticStartSocietyNames()
+    {
+        var names = new List<string>(this.configuration.AutomaticStartSocietyOrder.Count);
+        for (var i = 0; i < this.configuration.AutomaticStartSocietyOrder.Count; i++)
         {
-            return null;
+            var row = GetRowState(this.configuration.AutomaticStartSocietyOrder[i]);
+            names.Add(row?.Row.Progress.Society.Name ?? this.configuration.AutomaticStartSocietyOrder[i].ToString());
         }
 
-        var row = GetRowState(societyId.Value);
-        return row?.Row.Progress.Society.Name;
+        return names;
+    }
+
+    private void AddAutomaticStartSociety(EAlliedSociety societyId)
+    {
+        if (this.configuration.AutomaticStartSocietyOrder.Contains(societyId))
+        {
+            return;
+        }
+
+        this.configuration.AutomaticStartSocietyOrder.Add(societyId);
+        SaveConfiguration();
+    }
+
+    private void RemoveAutomaticStartSociety(EAlliedSociety societyId)
+    {
+        if (!this.configuration.AutomaticStartSocietyOrder.Remove(societyId))
+        {
+            return;
+        }
+
+        SaveConfiguration();
+    }
+
+    private void MoveAutomaticStartSociety(int sourceIndex, int targetIndex)
+    {
+        if (sourceIndex < 0
+            || sourceIndex >= this.configuration.AutomaticStartSocietyOrder.Count
+            || targetIndex < 0
+            || targetIndex >= this.configuration.AutomaticStartSocietyOrder.Count
+            || sourceIndex == targetIndex)
+        {
+            return;
+        }
+
+        var societyId = this.configuration.AutomaticStartSocietyOrder[sourceIndex];
+        this.configuration.AutomaticStartSocietyOrder.RemoveAt(sourceIndex);
+        this.configuration.AutomaticStartSocietyOrder.Insert(targetIndex, societyId);
+        SaveConfiguration();
     }
 
     private void InvalidateRawData()

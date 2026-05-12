@@ -47,7 +47,7 @@ public sealed class Configuration : IPluginConfiguration
 
     public int AutomaticStartMinuteLocal { get; set; }
 
-    public EAlliedSociety? AutomaticStartSocietyId { get; set; }
+    public List<EAlliedSociety> AutomaticStartSocietyOrder { get; set; } = [];
 
     public DateOnly? LastAutomaticStartDate { get; set; }
 
