@@ -14,6 +14,8 @@ public sealed class MainWindow : Window
     private const int ConservativeReputationPerQuest = 60;
     private const int NearRankUpThresholdReputation = 240;
     private const string AlertSettingsPopupId = "alert-settings-popup";
+    private const string KnownIssuesPopupId = "known-issues-popup";
+    private const string PlannedUpdatesPopupId = "planned-updates-popup";
     private static readonly Vector2 FillWidthProgressBarSize = new(-1, 0);
 
     private readonly Configuration configuration;
@@ -111,7 +113,25 @@ public sealed class MainWindow : Window
         }
 
         DrawTooltip("Open alert and automation settings.");
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Known issues##known-issues"))
+        {
+            ImGui.OpenPopup(KnownIssuesPopupId);
+        }
+
+        DrawTooltip("View current known issues.");
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Planned updates##planned-updates"))
+        {
+            ImGui.OpenPopup(PlannedUpdatesPopupId);
+        }
+
+        DrawTooltip("View planned improvements.");
         DrawAlertSettingsPopup();
+        DrawKnownIssuesPopup();
+        DrawPlannedUpdatesPopup();
     }
 
     private void DrawPlannerControls(PlannerViewCache cache, AutomationMonitorState monitor)
@@ -1298,6 +1318,41 @@ public sealed class MainWindow : Window
             this.configuration.NotifyPrerequisiteMet = notifyPrerequisiteMet;
             SaveConfiguration();
         }
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawKnownIssuesPopup()
+    {
+        if (!ImGui.BeginPopup(KnownIssuesPopupId))
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted("Known issues");
+        ImGui.Separator();
+
+        ImGui.BulletText("Automation depends on Questionable being installed and enabled.");
+        ImGui.BulletText("Some societies may show as unavailable if prerequisite detection is incomplete.");
+        ImGui.BulletText("ETA estimates are conservative and may not account for every bonus source.");
+
+        ImGui.EndPopup();
+    }
+
+    private void DrawPlannedUpdatesPopup()
+    {
+        if (!ImGui.BeginPopup(PlannedUpdatesPopupId))
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted("Planned updates");
+        ImGui.Separator();
+
+        ImGui.BulletText("Better prerequisite guidance for locked societies.");
+        ImGui.BulletText("More detailed automation status messages.");
+        ImGui.BulletText("Optional compact table view.");
+        ImGui.BulletText("Improved achievement tracking summaries.");
 
         ImGui.EndPopup();
     }

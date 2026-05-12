@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.2.1
+
+### Header Help Popups
+
+- Added a `Known issues` popup beside `Settings` so players can quickly review current limitations and caveats from the main window header.
+- Added a `Planned updates` popup beside `Settings` so players can see a short roadmap of upcoming usability and tracking improvements.
+
 ## v1.2.0
 
 ### Beginner-Friendly UI Refresh
