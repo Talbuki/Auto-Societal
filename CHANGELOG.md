@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.0
 
 ### Automation Compatibility Refactor
 
@@ -9,6 +9,7 @@
 - Reworked planner refresh to request daily quest statuses in a batch, reusing shared Questionable availability/running checks instead of repeating the same IPC-heavy lookups for each society row.
 - Isolated Questionable IPC names behind a single compatibility layer inside the automation service to make future IPC contract updates easier to maintain.
 - Replaced the blocking quest-accept loop with a resumable automation session driven by framework updates, removing UI-thread waiting while preserving pickup, continue, and hand-in-ready messaging.
+- Added a short post-accept pickup settle delay so automation does not prematurely switch into quest objectives while the next daily pickup is still appearing.
 - Renamed the main automation button to `Start / continue recommended dailies` and updated row action labels to reflect the actual service-reported automation action for that society.
 
 ## v1.0.1 and Release Automation Updates

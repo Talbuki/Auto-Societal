@@ -13,6 +13,7 @@ public sealed class QuestionableAutomationService
     private const string QuestionableQuestDataError = "Questionable returned invalid quest data for one or more dailies.";
     private const int PerSocietyDailyQuestLimit = 3;
     private static readonly TimeSpan QuestAcceptTimeout = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan QuestPickupSettleDelay = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan QuestAcceptPollInterval = TimeSpan.FromMilliseconds(100);
     private static readonly TimeSpan StatusCacheTtl = TimeSpan.FromSeconds(1);
 
@@ -512,6 +513,15 @@ public sealed class QuestionableAutomationService
                 evaluation.AcceptedQuestCount));
         }
 
+        if (session.AcceptedThisRun > 0
+            && evaluation.AcceptedQuestCount > 0
+            && evaluation.AcceptedQuestCount < PerSocietyDailyQuestLimit
+            && utcNow - session.WaitStartedUtc < QuestPickupSettleDelay)
+        {
+            SetAutomationMessage($"{session.Society.Name}: waiting for remaining pickups to appear.");
+            return null;
+        }
+
         if (evaluation.AcceptedQuestCount > 0 && !evaluation.AllAcceptedQuestsComplete)
         {
             if (evaluation.FirstAcceptedIncompleteQuestId is not ushort questToResumeId)
@@ -581,6 +591,7 @@ public sealed class QuestionableAutomationService
                 Phase = AutomationSessionPhase.Evaluate,
                 AcceptedThisRun = session.AcceptedThisRun + 1,
                 PendingQuestId = null,
+                WaitStartedUtc = utcNow,
             };
             SetAutomationMessage(BuildAutomationProgressMessage(
                 session.Society,
