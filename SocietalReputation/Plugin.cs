@@ -49,6 +49,7 @@ public sealed class Plugin : IDalamudPlugin
         pluginInterface.UiBuilder.Draw += Draw;
         pluginInterface.UiBuilder.OpenMainUi += ToggleMainWindow;
         pluginInterface.UiBuilder.OpenConfigUi += ToggleMainWindow;
+        this.framework.Update += this.automationService.OnFrameworkUpdate;
         this.framework.Update += this.alertMonitorService.OnFrameworkUpdate;
     }
 
@@ -62,6 +63,7 @@ public sealed class Plugin : IDalamudPlugin
         this.pluginInterface.UiBuilder.Draw -= Draw;
         this.pluginInterface.UiBuilder.OpenMainUi -= ToggleMainWindow;
         this.pluginInterface.UiBuilder.OpenConfigUi -= ToggleMainWindow;
+        this.framework.Update -= this.automationService.OnFrameworkUpdate;
         this.framework.Update -= this.alertMonitorService.OnFrameworkUpdate;
 
         this.commandManager.Dispose();

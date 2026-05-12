@@ -21,6 +21,9 @@ public sealed record DailyQuestStatus(
     bool AllAcceptedQuestsComplete,
     bool CanStartNextQuest,
     bool IsAutomationAvailable,
+    AutomationAction RecommendedAction,
+    bool CanExecuteAction,
+    string RecommendedActionLabel,
     string StatusMessage)
 {
     public bool HasVisibleActivity => ReadyQuestCount > 0 || AcceptedQuestCount > 0 || CompletedQuestCount > 0;

@@ -22,7 +22,6 @@ public sealed class MainWindow : Window
     private readonly QuestionableAutomationService automationService;
     private readonly AchievementTrackingService achievementTrackingService;
 
-    private string automationStatus = "Automation uses Questionable IPC when available.";
     private ReputationSnapshot? cachedSnapshot;
     private AchievementSnapshot? cachedAchievementSnapshot;
     private RowViewState[] cachedRowStates = [];
@@ -160,20 +159,33 @@ public sealed class MainWindow : Window
         DrawAlertSettingsPopup();
         DrawAutomationHelpHint(cache);
 
-        if (ImGui.Button("Accept all available quests (recommended)"))
+        var recommendation = cache.RecommendationRow;
+        var canRunRecommended = recommendation?.Row.DailyStatus.CanExecuteAction == true;
+        if (!canRunRecommended)
         {
-            var recommendation = cache.RecommendationRow;
-            this.automationStatus = recommendation == null
-                ? "No recommended society currently has available quests to accept."
-                : this.automationService.AcceptAllAvailableDailies(recommendation.Row.Progress.Society).Message;
+            ImGui.BeginDisabled();
+        }
+
+        if (ImGui.Button("Start / continue recommended dailies"))
+        {
+            if (recommendation != null)
+            {
+                this.automationService.StartOrContinueDaily(recommendation.Row.Progress.Society);
+            }
+
             this.automationService.InvalidateStatusCache();
             InvalidateRawData();
+        }
+
+        if (!canRunRecommended)
+        {
+            ImGui.EndDisabled();
         }
 
         ImGui.SameLine();
         if (ImGui.Button("Stop automation"))
         {
-            this.automationStatus = this.automationService.Stop().Message;
+            this.automationService.Stop();
             this.automationService.InvalidateStatusCache();
             InvalidateRawData();
         }
@@ -289,7 +301,7 @@ public sealed class MainWindow : Window
         {
             "Questionable: unavailable" => "Automation setup: enable Questionable and complete its setup to use start/continue actions.",
             "Questionable: running" => "Automation is currently running. Use Stop automation to pause or switch targets.",
-            _ => "Automation ready: Accept all available quests (recommended) follows the top recommendation.",
+            _ => "Automation ready: Start / continue recommended dailies follows the top recommendation.",
         };
 
         ImGui.TextDisabled(hint);
@@ -327,8 +339,9 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled("[?]");
         DrawTooltip("Recommendation factors: actionability, quest readiness, progress state, and reputation distance to next rank.");
         DrawTooltip("Recommendation is based on actionability, quest readiness, and distance to rank up.");
-        ImGui.TextDisabled(this.automationStatus);
-        DrawTooltip(this.automationStatus);
+        var monitor = this.automationService.GetMonitorState();
+        ImGui.TextDisabled(monitor.LastMessage);
+        DrawTooltip(monitor.LastMessage);
         ImGui.Separator();
     }
 
@@ -446,7 +459,7 @@ public sealed class MainWindow : Window
 
         if (ImGui.Button(rowState.ButtonLabel))
         {
-            this.automationStatus = this.automationService.AcceptAllAvailableDailies(progress.Society).Message;
+            this.automationService.StartOrContinueDaily(progress.Society);
             this.automationService.InvalidateStatusCache();
             InvalidateRawData();
         }
@@ -493,13 +506,14 @@ public sealed class MainWindow : Window
         }
 
         var achievementSnapshot = this.achievementTrackingService.GetSnapshot(societies);
+        var dailyStatuses = this.automationService.GetDailyQuestStatuses(societies);
         var rowStates = new RowViewState[progressCount];
         for (var i = 0; i < progressCount; i++)
         {
             var progress = snapshot.Progress[i];
             var row = new SocietyPlannerRow(
                 progress,
-                this.automationService.GetDailyQuestStatus(progress.Society),
+                dailyStatuses[progress.Society.Id],
                 achievementSnapshot.GetStatus(progress.Society.Id));
             rowStates[i] = BuildRowState(row);
         }
@@ -621,7 +635,7 @@ public sealed class MainWindow : Window
         {
             return new PlannerRecommendation(
                 null,
-                "No recommended society has available quests to accept.",
+                "No recommended society has a startable next step.",
                 "Try changing the focus filter or waiting for new dailies to unlock.");
         }
 
@@ -674,9 +688,9 @@ public sealed class MainWindow : Window
             row,
             GetRecommendationScore(row),
             GetDiagnosticPriority(row),
-            progress.IsUnlocked && dailyStatus.CanStartNextQuest,
+            dailyStatus.CanExecuteAction,
             BuildDailyBreakdownText(dailyStatus),
-            BuildButtonLabel(progress, dailyStatus),
+            $"{dailyStatus.RecommendedActionLabel}###start-daily-{(byte)progress.Society.Id}",
             BuildRowColor(visualState),
             BuildEtaSummaryText(eta),
             BuildEtaDetailText(eta),
@@ -719,18 +733,6 @@ public sealed class MainWindow : Window
             DailyQuestReadiness.PickupPending => row.DailyStatus.StatusMessage,
             DailyQuestReadiness.NoneAvailable => "No obtainable daily right now. Try again after reset.",
             _ => row.DailyStatus.StatusMessage,
-        };
-    }
-
-    private static string BuildButtonLabel(SocietyProgress progress, DailyQuestStatus dailyStatus)
-    {
-        return dailyStatus.Readiness switch
-        {
-            DailyQuestReadiness.PickupPending => $"Accept remaining quests###start-daily-{(byte)progress.Society.Id}",
-            DailyQuestReadiness.InProgress => $"Continue daily###start-daily-{(byte)progress.Society.Id}",
-            DailyQuestReadiness.ReadyToTurnIn => $"Hand-in ready###start-daily-{(byte)progress.Society.Id}",
-            _ when progress.AcceptedDailyQuestCount > 0 => $"Resume daily###start-daily-{(byte)progress.Society.Id}",
-            _ => $"Accept all available quests###start-daily-{(byte)progress.Society.Id}",
         };
     }
 

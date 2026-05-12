@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Automation Compatibility Refactor
+
+- Moved automation action/state ownership into `QuestionableAutomationService` so the planner window now renders service-reported status instead of tracking a separate UI-only automation message.
+- Added service-owned automation intent for daily rows, including explicit actions for accepting available quests, accepting remaining pickups, continuing in-progress dailies, hand-in-ready states, setup-required states, and Questionable-unavailable states.
+- Reworked planner refresh to request daily quest statuses in a batch, reusing shared Questionable availability/running checks instead of repeating the same IPC-heavy lookups for each society row.
+- Isolated Questionable IPC names behind a single compatibility layer inside the automation service to make future IPC contract updates easier to maintain.
+- Replaced the blocking quest-accept loop with a resumable automation session driven by framework updates, removing UI-thread waiting while preserving pickup, continue, and hand-in-ready messaging.
+- Renamed the main automation button to `Start / continue recommended dailies` and updated row action labels to reflect the actual service-reported automation action for that society.
+
 ## v1.0.1 and Release Automation Updates
 
 Changes in this entry cover repository activity from `v1.0.0` through the current `HEAD`. This summary is limited to repo history and release-process updates; it does not include terminal activity or build verification from outside the committed changes.

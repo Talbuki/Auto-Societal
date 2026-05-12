@@ -1,9 +1,9 @@
 using Dalamud.Plugin;
 using Dalamud.Plugin.Ipc;
 using Dalamud.Plugin.Ipc.Exceptions;
+using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using SocietalReputation.Models;
-using System.Diagnostics;
 using System.Reflection;
 
 namespace SocietalReputation.Services;
@@ -27,6 +27,8 @@ public sealed class QuestionableAutomationService
 
     private CachedStatus? cachedAvailability;
     private CachedStatus? cachedRunningState;
+    private AutomationSession? activeSession;
+    private DateTime lastAutomationTickUtc = DateTime.MinValue;
     private EAlliedSociety? lastAutomationSocietyId;
     private string? lastAutomationSocietyName;
     private DateTime? lastAutomationStartedUtc;
@@ -37,14 +39,14 @@ public sealed class QuestionableAutomationService
 
     public QuestionableAutomationService(IDalamudPluginInterface pluginInterface)
     {
-        this.isRunning = pluginInterface.GetIpcSubscriber<bool>("Questionable.IsRunning");
-        this.startQuest = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.StartQuest");
-        this.stop = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.Stop");
-        this.isQuestLocked = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestLocked");
-        this.isReadyToAcceptQuest = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsReadyToAcceptQuest");
-        this.isQuestAccepted = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestAccepted");
-        this.isQuestComplete = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestComplete");
-        this.isQuestUnobtainable = pluginInterface.GetIpcSubscriber<string, bool>("Questionable.IsQuestUnobtainable");
+        this.isRunning = pluginInterface.GetIpcSubscriber<bool>(QuestionableIpc.IsRunning);
+        this.startQuest = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.StartQuest);
+        this.stop = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.Stop);
+        this.isQuestLocked = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.IsQuestLocked);
+        this.isReadyToAcceptQuest = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.IsReadyToAcceptQuest);
+        this.isQuestAccepted = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.IsQuestAccepted);
+        this.isQuestComplete = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.IsQuestComplete);
+        this.isQuestUnobtainable = pluginInterface.GetIpcSubscriber<string, bool>(QuestionableIpc.IsQuestUnobtainable);
     }
 
     public void InvalidateStatusCache()
@@ -75,9 +77,9 @@ public sealed class QuestionableAutomationService
 
     public bool IsRunning()
     {
-        if (TryGetCachedStatus(this.cachedRunningState, out var isRunning))
+        if (TryGetCachedStatus(this.cachedRunningState, out var isRunningValue))
         {
-            return isRunning;
+            return isRunningValue;
         }
 
         if (!IsAvailable())
@@ -111,219 +113,39 @@ public sealed class QuestionableAutomationService
             this.lastAutomationMessage);
     }
 
-    public AutomationResult AcceptAllAvailableDailies(SocietyInfo society)
+    public IReadOnlyDictionary<EAlliedSociety, DailyQuestStatus> GetDailyQuestStatuses(IEnumerable<SocietyInfo> societies)
     {
-        BeginAutomationTracking(society);
-
-        if (society.DailyQuestStart == 0 || society.DailyQuestEnd == 0)
+        var availability = GetAvailabilitySnapshot();
+        var statuses = new Dictionary<EAlliedSociety, DailyQuestStatus>();
+        foreach (var society in societies)
         {
-            return RecordAutomationResult(new AutomationResult(false, $"No daily quest range is configured for {society.Name}."));
+            statuses[society.Id] = BuildDailyQuestStatus(society, availability);
         }
 
-        if (!IsAvailable())
-        {
-            return RecordAutomationResult(new AutomationResult(false, "Questionable IPC is unavailable. Install/enable Questionable and complete its setup."));
-        }
-
-        try
-        {
-            var acceptedThisRun = 0;
-
-            while (true)
-            {
-                var evaluation = EvaluateSocietyQuests(society);
-                if (evaluation.HadQuestDataError)
-                {
-                    return RecordAutomationResult(new AutomationResult(false, QuestionableQuestDataError));
-                }
-
-                var canAcceptMore = evaluation.AcceptedQuestCount < PerSocietyDailyQuestLimit;
-                if (!canAcceptMore || evaluation.FirstReadyQuestId is not ushort readyQuestId)
-                {
-                    break;
-                }
-
-                var quest = readyQuestId.ToString();
-                if (!this.startQuest.InvokeFunc(quest))
-                {
-                    InvalidateStatusCache();
-                    return RecordAutomationResult(BuildAcceptanceFailureResult(
-                        society,
-                        acceptedThisRun,
-                        readyQuestId,
-                        "Questionable could not start the ready quest."));
-                }
-
-                InvalidateStatusCache();
-                if (!WaitForQuestAcceptance(society, readyQuestId, evaluation.AcceptedQuestCount))
-                {
-                    return RecordAutomationResult(BuildAcceptanceFailureResult(
-                        society,
-                        acceptedThisRun,
-                        readyQuestId,
-                        "Timed out waiting for the quest to be accepted."));
-                }
-
-                acceptedThisRun++;
-                MarkAutomationProgress();
-            }
-
-            var postPickupEvaluation = EvaluateSocietyQuests(society);
-            if (postPickupEvaluation.HadQuestDataError)
-            {
-                return RecordAutomationResult(new AutomationResult(false, QuestionableQuestDataError));
-            }
-
-            if (postPickupEvaluation.AcceptedQuestCount > 0 && postPickupEvaluation.FirstReadyQuestId is not null)
-            {
-                return RecordAutomationResult(new AutomationResult(
-                    acceptedThisRun > 0,
-                    BuildAutomationProgressMessage(
-                        society,
-                        postPickupEvaluation.AcceptedQuestCount,
-                        acceptedThisRun,
-                        "Waiting for remaining pickups to become accept-ready."),
-                    postPickupEvaluation.AcceptedQuestCount));
-            }
-
-            if (postPickupEvaluation.AcceptedQuestCount > 0 && !postPickupEvaluation.AllAcceptedQuestsComplete)
-            {
-                if (postPickupEvaluation.FirstAcceptedIncompleteQuestId is not ushort questToResumeId)
-                {
-                    return RecordAutomationResult(new AutomationResult(
-                        false,
-                        $"{society.Name} has accepted quests in progress, but none could be resumed.",
-                        postPickupEvaluation.AcceptedQuestCount));
-                }
-
-                if (!this.startQuest.InvokeFunc(questToResumeId.ToString()))
-                {
-                    InvalidateStatusCache();
-                    return RecordAutomationResult(BuildAcceptanceFailureResult(
-                        society,
-                        acceptedThisRun,
-                        questToResumeId,
-                        "Questionable could not resume the accepted quest."));
-                }
-
-                InvalidateStatusCache();
-                MarkAutomationProgress();
-                return RecordAutomationResult(new AutomationResult(
-                    true,
-                    BuildAutomationProgressMessage(society, postPickupEvaluation.AcceptedQuestCount, acceptedThisRun, "Continuing accepted quests after all available pickups."),
-                    postPickupEvaluation.AcceptedQuestCount));
-            }
-
-            if (postPickupEvaluation.AcceptedQuestCount > 0 && postPickupEvaluation.AllAcceptedQuestsComplete)
-            {
-                MarkAutomationProgress();
-                return RecordAutomationResult(new AutomationResult(
-                    true,
-                    $"{society.Name} accepted quests are complete and ready to hand in.",
-                    postPickupEvaluation.AcceptedQuestCount));
-            }
-
-            return acceptedThisRun > 0
-                ? RecordAutomationResult(new AutomationResult(
-                    true,
-                    BuildAutomationProgressMessage(society, postPickupEvaluation.AcceptedQuestCount, acceptedThisRun, "Finish accepted quests before turn-in."),
-                    postPickupEvaluation.AcceptedQuestCount))
-                : RecordAutomationResult(new AutomationResult(false, $"No available {society.Name} daily quest was found."));
-        }
-        catch (IpcError)
-        {
-            CacheUnavailable();
-            return RecordAutomationResult(new AutomationResult(false, "Questionable IPC is unavailable. Install/enable Questionable and complete its setup."));
-        }
+        return statuses;
     }
 
     public DailyQuestStatus GetDailyQuestStatus(SocietyInfo society)
     {
-        var (acceptedQuestCount, completedQuestCount) = GetAcceptedQuestCounts(society);
-        if (society.DailyQuestStart == 0 || society.DailyQuestEnd == 0)
+        return BuildDailyQuestStatus(society, GetAvailabilitySnapshot());
+    }
+
+    public AutomationResult StartOrContinueDaily(SocietyInfo society)
+    {
+        BeginAutomationTracking(society);
+
+        var status = GetDailyQuestStatus(society);
+        if (!status.CanExecuteAction)
         {
-            return new DailyQuestStatus(
-                DailyQuestReadiness.Unconfigured,
-                0,
-                acceptedQuestCount,
-                completedQuestCount,
-                0,
-                false,
-                false,
-                IsAvailable(),
-                "No daily quest range configured.");
+            return RecordAutomationResult(new AutomationResult(false, status.StatusMessage));
         }
 
-        if (!IsAvailable())
+        return status.RecommendedAction switch
         {
-            return new DailyQuestStatus(
-                DailyQuestReadiness.Unavailable,
-                0,
-                acceptedQuestCount,
-                completedQuestCount,
-                0,
-                false,
-                acceptedQuestCount > 0,
-                false,
-                acceptedQuestCount > 0
-                    ? $"{acceptedQuestCount} accepted quest(s) in progress."
-                    : "Questionable unavailable.");
-        }
-
-        try
-        {
-            var evaluation = EvaluateSocietyQuests(society);
-            var pickupComplete = evaluation.AcceptedQuestCount >= PerSocietyDailyQuestLimit || evaluation.ReadyQuestCount == 0;
-            var readiness = evaluation.AcceptedQuestCount > 0 && !pickupComplete
-                ? DailyQuestReadiness.PickupPending
-                : evaluation.AcceptedQuestCount > 0
-                    ? evaluation.AllAcceptedQuestsComplete
-                        ? DailyQuestReadiness.ReadyToTurnIn
-                        : DailyQuestReadiness.InProgress
-                    : evaluation.ReadyQuestCount > 0
-                    ? DailyQuestReadiness.Ready
-                    : evaluation.BlockedQuestCount > 0
-                        ? DailyQuestReadiness.LockedOrUnavailable
-                        : DailyQuestReadiness.NoneAvailable;
-
-            return new DailyQuestStatus(
-                readiness,
-                evaluation.ReadyQuestCount,
-                evaluation.AcceptedQuestCount,
-                evaluation.CompletedQuestCount,
-                evaluation.BlockedQuestCount,
-                evaluation.AllAcceptedQuestsComplete,
-                evaluation.CanStartNextQuest,
-                true,
-                BuildDailyStatusMessage(evaluation));
-        }
-        catch (IpcError)
-        {
-            CacheUnavailable();
-            return new DailyQuestStatus(
-                DailyQuestReadiness.Unavailable,
-                0,
-                acceptedQuestCount,
-                completedQuestCount,
-                0,
-                false,
-                acceptedQuestCount > 0,
-                false,
-                "Questionable IPC is unavailable.");
-        }
-        catch (Exception)
-        {
-            return new DailyQuestStatus(
-                DailyQuestReadiness.Unavailable,
-                0,
-                acceptedQuestCount,
-                completedQuestCount,
-                0,
-                false,
-                acceptedQuestCount > 0,
-                false,
-                QuestionableQuestDataError);
-        }
+            AutomationAction.AcceptAvailable or AutomationAction.AcceptRemaining => StartAcceptanceSession(society),
+            AutomationAction.Continue => ContinueAcceptedQuest(society),
+            _ => RecordAutomationResult(new AutomationResult(false, status.StatusMessage)),
+        };
     }
 
     public AutomationResult Stop()
@@ -334,14 +156,33 @@ public sealed class QuestionableAutomationService
                 ? new AutomationResult(true, "Stopped Questionable automation.")
                 : new AutomationResult(false, "Questionable did not stop automation.");
             InvalidateStatusCache();
+            this.activeSession = null;
             ClearAutomationTracking();
             return RecordAutomationResult(result);
         }
         catch (IpcError)
         {
             CacheUnavailable();
+            this.activeSession = null;
             return RecordAutomationResult(new AutomationResult(false, "Questionable IPC is unavailable."));
         }
+    }
+
+    public void OnFrameworkUpdate(IFramework framework)
+    {
+        if (this.activeSession == null)
+        {
+            return;
+        }
+
+        var utcNow = framework.LastUpdateUTC;
+        if (this.lastAutomationTickUtc != DateTime.MinValue && utcNow - this.lastAutomationTickUtc < QuestAcceptPollInterval)
+        {
+            return;
+        }
+
+        this.lastAutomationTickUtc = utcNow;
+        AdvanceActiveSession(utcNow);
     }
 
     private static bool TryGetCachedStatus(CachedStatus? cachedStatus, out bool value)
@@ -370,6 +211,397 @@ public sealed class QuestionableAutomationService
         this.cachedRunningState = new CachedStatus(false, expiresAtUtc);
     }
 
+    private AvailabilitySnapshot GetAvailabilitySnapshot()
+    {
+        var isAvailable = IsAvailable();
+        return new AvailabilitySnapshot(isAvailable, isAvailable && IsRunning());
+    }
+
+    private DailyQuestStatus BuildDailyQuestStatus(SocietyInfo society, AvailabilitySnapshot availability)
+    {
+        var (acceptedQuestCount, completedQuestCount) = GetAcceptedQuestCounts(society);
+        if (society.DailyQuestStart == 0 || society.DailyQuestEnd == 0)
+        {
+            return CreateStatus(
+                DailyQuestReadiness.Unconfigured,
+                0,
+                acceptedQuestCount,
+                completedQuestCount,
+                0,
+                false,
+                false,
+                availability.IsAvailable,
+                AutomationAction.SetupRequired,
+                "Setup required",
+                "No daily quest range configured.");
+        }
+
+        if (!availability.IsAvailable)
+        {
+            return CreateStatus(
+                DailyQuestReadiness.Unavailable,
+                0,
+                acceptedQuestCount,
+                completedQuestCount,
+                0,
+                false,
+                acceptedQuestCount > 0,
+                false,
+                AutomationAction.Unavailable,
+                "Unavailable",
+                acceptedQuestCount > 0
+                    ? $"{acceptedQuestCount} accepted quest(s) in progress."
+                    : "Questionable unavailable.");
+        }
+
+        try
+        {
+            var evaluation = EvaluateSocietyQuests(society);
+            if (evaluation.HadQuestDataError)
+            {
+                return CreateStatus(
+                    DailyQuestReadiness.Unavailable,
+                    0,
+                    acceptedQuestCount,
+                    completedQuestCount,
+                    0,
+                    false,
+                    acceptedQuestCount > 0,
+                    true,
+                    AutomationAction.Unavailable,
+                    "Unavailable",
+                    QuestionableQuestDataError);
+            }
+
+            var pickupComplete = evaluation.AcceptedQuestCount >= PerSocietyDailyQuestLimit || evaluation.ReadyQuestCount == 0;
+            var readiness = evaluation.AcceptedQuestCount > 0 && !pickupComplete
+                ? DailyQuestReadiness.PickupPending
+                : evaluation.AcceptedQuestCount > 0
+                    ? evaluation.AllAcceptedQuestsComplete
+                        ? DailyQuestReadiness.ReadyToTurnIn
+                        : DailyQuestReadiness.InProgress
+                    : evaluation.ReadyQuestCount > 0
+                        ? DailyQuestReadiness.Ready
+                        : evaluation.BlockedQuestCount > 0
+                            ? DailyQuestReadiness.LockedOrUnavailable
+                            : DailyQuestReadiness.NoneAvailable;
+            var recommendedAction = GetRecommendedAction(readiness);
+
+            return CreateStatus(
+                readiness,
+                evaluation.ReadyQuestCount,
+                evaluation.AcceptedQuestCount,
+                evaluation.CompletedQuestCount,
+                evaluation.BlockedQuestCount,
+                evaluation.AllAcceptedQuestsComplete,
+                evaluation.CanStartNextQuest,
+                true,
+                recommendedAction,
+                GetRecommendedActionLabel(recommendedAction),
+                BuildDailyStatusMessage(evaluation));
+        }
+        catch (IpcError)
+        {
+            CacheUnavailable();
+            return CreateStatus(
+                DailyQuestReadiness.Unavailable,
+                0,
+                acceptedQuestCount,
+                completedQuestCount,
+                0,
+                false,
+                acceptedQuestCount > 0,
+                false,
+                AutomationAction.Unavailable,
+                "Unavailable",
+                "Questionable IPC is unavailable.");
+        }
+        catch (Exception)
+        {
+            return CreateStatus(
+                DailyQuestReadiness.Unavailable,
+                0,
+                acceptedQuestCount,
+                completedQuestCount,
+                0,
+                false,
+                acceptedQuestCount > 0,
+                false,
+                AutomationAction.Unavailable,
+                "Unavailable",
+                QuestionableQuestDataError);
+        }
+    }
+
+    private static DailyQuestStatus CreateStatus(
+        DailyQuestReadiness readiness,
+        int readyQuestCount,
+        int acceptedQuestCount,
+        int completedQuestCount,
+        int blockedQuestCount,
+        bool allAcceptedQuestsComplete,
+        bool canStartNextQuest,
+        bool isAutomationAvailable,
+        AutomationAction recommendedAction,
+        string recommendedActionLabel,
+        string statusMessage)
+    {
+        return new DailyQuestStatus(
+            readiness,
+            readyQuestCount,
+            acceptedQuestCount,
+            completedQuestCount,
+            blockedQuestCount,
+            allAcceptedQuestsComplete,
+            canStartNextQuest,
+            isAutomationAvailable,
+            recommendedAction,
+            CanExecuteAction(recommendedAction),
+            recommendedActionLabel,
+            statusMessage);
+    }
+
+    private static AutomationAction GetRecommendedAction(DailyQuestReadiness readiness)
+    {
+        return readiness switch
+        {
+            DailyQuestReadiness.Ready => AutomationAction.AcceptAvailable,
+            DailyQuestReadiness.PickupPending => AutomationAction.AcceptRemaining,
+            DailyQuestReadiness.InProgress => AutomationAction.Continue,
+            DailyQuestReadiness.ReadyToTurnIn => AutomationAction.HandInReady,
+            DailyQuestReadiness.Unconfigured => AutomationAction.SetupRequired,
+            DailyQuestReadiness.Unavailable => AutomationAction.Unavailable,
+            _ => AutomationAction.None,
+        };
+    }
+
+    private static bool CanExecuteAction(AutomationAction action)
+    {
+        return action is AutomationAction.AcceptAvailable or AutomationAction.AcceptRemaining or AutomationAction.Continue;
+    }
+
+    private static string GetRecommendedActionLabel(AutomationAction action)
+    {
+        return action switch
+        {
+            AutomationAction.AcceptAvailable => "Accept available",
+            AutomationAction.AcceptRemaining => "Accept remaining",
+            AutomationAction.Continue => "Continue daily",
+            AutomationAction.HandInReady => "Hand-in ready",
+            AutomationAction.SetupRequired => "Setup required",
+            AutomationAction.Unavailable => "Unavailable",
+            _ => "No action",
+        };
+    }
+
+    private AutomationResult StartAcceptanceSession(SocietyInfo society)
+    {
+        this.activeSession = new AutomationSession(society, AutomationSessionPhase.Evaluate, 0, null, 0, DateTime.UtcNow);
+        var immediateResult = AdvanceActiveSession(DateTime.UtcNow);
+        return immediateResult ?? new AutomationResult(true, $"Started {society.Name} automation.");
+    }
+
+    private AutomationResult ContinueAcceptedQuest(SocietyInfo society)
+    {
+        try
+        {
+            var evaluation = EvaluateSocietyQuests(society);
+            if (evaluation.HadQuestDataError)
+            {
+                return RecordAutomationResult(new AutomationResult(false, QuestionableQuestDataError));
+            }
+
+            if (evaluation.FirstAcceptedIncompleteQuestId is not ushort questToResumeId)
+            {
+                return RecordAutomationResult(new AutomationResult(false, $"{society.Name} has accepted quests in progress, but none could be resumed.", evaluation.AcceptedQuestCount));
+            }
+
+            if (!this.startQuest.InvokeFunc(questToResumeId.ToString()))
+            {
+                InvalidateStatusCache();
+                return RecordAutomationResult(BuildAcceptanceFailureResult(
+                    society,
+                    0,
+                    questToResumeId,
+                    "Questionable could not resume the accepted quest."));
+            }
+
+            InvalidateStatusCache();
+            MarkAutomationProgress();
+            return RecordAutomationResult(new AutomationResult(
+                true,
+                BuildAutomationProgressMessage(society, evaluation.AcceptedQuestCount, 0, "Continuing accepted quests."),
+                evaluation.AcceptedQuestCount));
+        }
+        catch (IpcError)
+        {
+            CacheUnavailable();
+            return RecordAutomationResult(new AutomationResult(false, "Questionable IPC is unavailable. Install/enable Questionable and complete its setup."));
+        }
+    }
+
+    private AutomationResult? AdvanceActiveSession(DateTime utcNow)
+    {
+        var session = this.activeSession;
+        if (session == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return session.Phase switch
+            {
+                AutomationSessionPhase.Evaluate => EvaluateAutomationSession(session, utcNow),
+                AutomationSessionPhase.WaitingForAcceptance => WaitForQuestAcceptance(session, utcNow),
+                _ => null,
+            };
+        }
+        catch (IpcError)
+        {
+            CacheUnavailable();
+            return FinishActiveSession(new AutomationResult(false, "Questionable IPC is unavailable. Install/enable Questionable and complete its setup."));
+        }
+    }
+
+    private AutomationResult? EvaluateAutomationSession(AutomationSession session, DateTime utcNow)
+    {
+        var evaluation = EvaluateSocietyQuests(session.Society);
+        if (evaluation.HadQuestDataError)
+        {
+            return FinishActiveSession(new AutomationResult(false, QuestionableQuestDataError));
+        }
+
+        var canAcceptMore = evaluation.AcceptedQuestCount < PerSocietyDailyQuestLimit;
+        if (canAcceptMore && evaluation.FirstReadyQuestId is ushort readyQuestId)
+        {
+            if (!this.startQuest.InvokeFunc(readyQuestId.ToString()))
+            {
+                InvalidateStatusCache();
+                return FinishActiveSession(BuildAcceptanceFailureResult(
+                    session.Society,
+                    session.AcceptedThisRun,
+                    readyQuestId,
+                    "Questionable could not start the ready quest."));
+            }
+
+            InvalidateStatusCache();
+            this.activeSession = session with
+            {
+                Phase = AutomationSessionPhase.WaitingForAcceptance,
+                PendingQuestId = readyQuestId,
+                AcceptedQuestCountBeforeStart = evaluation.AcceptedQuestCount,
+                WaitStartedUtc = utcNow,
+            };
+            SetAutomationMessage($"{session.Society.Name}: started quest {readyQuestId}, waiting for acceptance.");
+            return new AutomationResult(
+                true,
+                $"{session.Society.Name}: starting available quests. Waiting for pickup confirmation.",
+                evaluation.AcceptedQuestCount);
+        }
+
+        if (evaluation.AcceptedQuestCount > 0 && evaluation.FirstReadyQuestId is not null)
+        {
+            return FinishActiveSession(new AutomationResult(
+                session.AcceptedThisRun > 0,
+                BuildAutomationProgressMessage(
+                    session.Society,
+                    evaluation.AcceptedQuestCount,
+                    session.AcceptedThisRun,
+                    "Waiting for remaining pickups to become accept-ready."),
+                evaluation.AcceptedQuestCount));
+        }
+
+        if (evaluation.AcceptedQuestCount > 0 && !evaluation.AllAcceptedQuestsComplete)
+        {
+            if (evaluation.FirstAcceptedIncompleteQuestId is not ushort questToResumeId)
+            {
+                return FinishActiveSession(new AutomationResult(
+                    false,
+                    $"{session.Society.Name} has accepted quests in progress, but none could be resumed.",
+                    evaluation.AcceptedQuestCount));
+            }
+
+            if (!this.startQuest.InvokeFunc(questToResumeId.ToString()))
+            {
+                InvalidateStatusCache();
+                return FinishActiveSession(BuildAcceptanceFailureResult(
+                    session.Society,
+                    session.AcceptedThisRun,
+                    questToResumeId,
+                    "Questionable could not resume the accepted quest."));
+            }
+
+            InvalidateStatusCache();
+            MarkAutomationProgress();
+            return FinishActiveSession(new AutomationResult(
+                true,
+                BuildAutomationProgressMessage(session.Society, evaluation.AcceptedQuestCount, session.AcceptedThisRun, "Continuing accepted quests after all available pickups."),
+                evaluation.AcceptedQuestCount));
+        }
+
+        if (evaluation.AcceptedQuestCount > 0 && evaluation.AllAcceptedQuestsComplete)
+        {
+            MarkAutomationProgress();
+            return FinishActiveSession(new AutomationResult(
+                true,
+                $"{session.Society.Name} accepted quests are complete and ready to hand in.",
+                evaluation.AcceptedQuestCount));
+        }
+
+        if (session.AcceptedThisRun > 0)
+        {
+            return FinishActiveSession(new AutomationResult(
+                true,
+                BuildAutomationProgressMessage(session.Society, evaluation.AcceptedQuestCount, session.AcceptedThisRun, "Finish accepted quests before turn-in."),
+                evaluation.AcceptedQuestCount));
+        }
+
+        return FinishActiveSession(new AutomationResult(false, $"No available {session.Society.Name} daily quest was found."));
+    }
+
+    private AutomationResult? WaitForQuestAcceptance(AutomationSession session, DateTime utcNow)
+    {
+        if (session.PendingQuestId is not ushort questId)
+        {
+            return FinishActiveSession(new AutomationResult(false, $"{session.Society.Name} automation lost the pending quest state."));
+        }
+
+        var evaluation = EvaluateSocietyQuests(session.Society);
+        if (evaluation.HadQuestDataError)
+        {
+            return FinishActiveSession(new AutomationResult(false, QuestionableQuestDataError));
+        }
+
+        if (evaluation.IsAccepted(questId) || evaluation.AcceptedQuestCount > session.AcceptedQuestCountBeforeStart)
+        {
+            MarkAutomationProgress();
+            this.activeSession = session with
+            {
+                Phase = AutomationSessionPhase.Evaluate,
+                AcceptedThisRun = session.AcceptedThisRun + 1,
+                PendingQuestId = null,
+            };
+            SetAutomationMessage(BuildAutomationProgressMessage(
+                session.Society,
+                evaluation.AcceptedQuestCount,
+                session.AcceptedThisRun + 1,
+                "Continuing automation."));
+            return null;
+        }
+
+        if (utcNow - session.WaitStartedUtc >= QuestAcceptTimeout)
+        {
+            return FinishActiveSession(BuildAcceptanceFailureResult(
+                session.Society,
+                session.AcceptedThisRun,
+                questId,
+                "Timed out waiting for the quest to be accepted."));
+        }
+
+        return null;
+    }
+
     private void BeginAutomationTracking(SocietyInfo society)
     {
         var utcNow = DateTime.UtcNow;
@@ -385,12 +617,23 @@ public sealed class QuestionableAutomationService
         this.lastAutomationProgressUtc = DateTime.UtcNow;
     }
 
+    private void SetAutomationMessage(string message)
+    {
+        this.lastAutomationMessage = message;
+    }
+
     private AutomationResult RecordAutomationResult(AutomationResult result)
     {
         this.lastAutomationResultUtc = DateTime.UtcNow;
         this.lastAutomationResultSucceeded = result.Success;
         this.lastAutomationMessage = result.Message;
         return result;
+    }
+
+    private AutomationResult FinishActiveSession(AutomationResult result)
+    {
+        this.activeSession = null;
+        return RecordAutomationResult(result);
     }
 
     private void ClearAutomationTracking()
@@ -565,23 +808,6 @@ public sealed class QuestionableAutomationService
             firstAcceptedIncompleteQuestId);
     }
 
-    private bool WaitForQuestAcceptance(SocietyInfo society, ushort questId, int acceptedQuestCountBeforeStart)
-    {
-        var timeout = Stopwatch.StartNew();
-        while (timeout.Elapsed < QuestAcceptTimeout)
-        {
-            var evaluation = EvaluateSocietyQuests(society);
-            if (evaluation.IsAccepted(questId) || evaluation.AcceptedQuestCount > acceptedQuestCountBeforeStart)
-            {
-                return true;
-            }
-
-            Thread.Sleep(QuestAcceptPollInterval);
-        }
-
-        return false;
-    }
-
     private static AutomationResult BuildAcceptanceFailureResult(SocietyInfo society, int acceptedThisRun, ushort blockedQuestId, string reason)
     {
         var message = acceptedThisRun > 0
@@ -630,9 +856,37 @@ public sealed class QuestionableAutomationService
             : $"{society.Name}: {acceptedCount}/{PerSocietyDailyQuestLimit} accepted. {suffix}";
     }
 
+    private static class QuestionableIpc
+    {
+        public const string IsRunning = "Questionable.IsRunning";
+        public const string StartQuest = "Questionable.StartQuest";
+        public const string Stop = "Questionable.Stop";
+        public const string IsQuestLocked = "Questionable.IsQuestLocked";
+        public const string IsReadyToAcceptQuest = "Questionable.IsReadyToAcceptQuest";
+        public const string IsQuestAccepted = "Questionable.IsQuestAccepted";
+        public const string IsQuestComplete = "Questionable.IsQuestComplete";
+        public const string IsQuestUnobtainable = "Questionable.IsQuestUnobtainable";
+    }
+
     private sealed record CachedStatus(bool Value, DateTime ExpiresAtUtc);
 
+    private sealed record AvailabilitySnapshot(bool IsAvailable, bool IsRunning);
+
     private sealed record QuestState(ushort QuestId, bool IsAccepted);
+
+    private sealed record AutomationSession(
+        SocietyInfo Society,
+        AutomationSessionPhase Phase,
+        int AcceptedThisRun,
+        ushort? PendingQuestId,
+        int AcceptedQuestCountBeforeStart,
+        DateTime WaitStartedUtc);
+
+    private enum AutomationSessionPhase
+    {
+        Evaluate,
+        WaitingForAcceptance,
+    }
 
     private sealed record SocietyQuestEvaluation(
         QuestState[] Quests,
