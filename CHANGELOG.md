@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.2.3
+
+### Onboarding Refresh and Help Reopen
+
+- Refreshed the inline `Getting Started` checklist so it now reflects the current feature set, including automation availability, daily readiness, and scheduled auto-start guidance.
+- Added a `Help` button to the header so players can restore the onboarding checklist after hiding or dismissing it.
+- Clarified that Settings and Help are the main places to revisit setup guidance and adjust automation-related behavior.
+
 ## v1.2.2
 
 ### Daily Scheduled Auto-Start

@@ -144,6 +144,16 @@ public sealed class MainWindow : Window
         }
 
         DrawTooltip("View planned improvements.");
+
+        ImGui.SameLine();
+        if (ImGui.SmallButton("Help##onboarding-help"))
+        {
+            this.configuration.ShowOnboardingWalkthrough = true;
+            this.configuration.OnboardingDismissed = false;
+            SaveConfiguration();
+        }
+
+        DrawTooltip("Show the getting started checklist again.");
         DrawAlertSettingsPopup();
         DrawKnownIssuesPopup();
         DrawPlannedUpdatesPopup();
@@ -238,6 +248,8 @@ public sealed class MainWindow : Window
         var automationAvailable = this.automationService.IsAvailable();
         var unlockedCount = CountRows(this.cachedRowStates, static row => row.Row.Progress.IsUnlocked);
         var hasSomethingToDo = cache.ActionableCount > 0 || snapshot.AcceptedDailyQuests > 0;
+        var autoStartEnabled = this.configuration.EnableAutomaticStartTime;
+        var autoStartTime = $"{this.configuration.AutomaticStartHourLocal:00}:{this.configuration.AutomaticStartMinuteLocal:00}";
 
         ImGui.TextUnformatted("Getting Started");
         ImGui.Separator();
@@ -262,6 +274,16 @@ public sealed class MainWindow : Window
                 : snapshot.RemainingAllowances == 0
                     ? "You are out of daily allowances until reset."
                     : "No startable society quests are ready right now.");
+        DrawChecklistStep(
+            "Scheduled auto-start",
+            autoStartEnabled ? "Ready" : "Optional",
+            autoStartEnabled
+                ? $"Automatic start is enabled for {autoStartTime} local time each day."
+                : "Automatic start is off. Enable it in Settings if you want the recommended daily action to begin on a schedule.");
+        DrawChecklistStep(
+            "Need help later?",
+            "Always available",
+            "Use Settings to adjust alerts and automation behavior, or click Help in the header to show this checklist again anytime.");
 
         if (ImGui.Button("Hide checklist"))
         {
