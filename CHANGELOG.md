@@ -1,5 +1,17 @@
 # Changelog
 
+## v1.2.0
+
+### Beginner-Friendly UI Refresh
+
+- Added a simpler default window flow aimed at first-time users, with advanced controls preserved behind progressive disclosure instead of removed outright.
+- Promoted the recommended next step into a clearer “what should I do next?” experience so the primary action is easier to spot and understand.
+- Rewrote key planner and automation labels in more player-facing language, reducing reliance on technical or developer-centric terminology.
+- Shifted onboarding toward a more actionable setup experience with clearer status explanations for new players.
+- Improved blocked and empty-state guidance so the window explains why a society cannot be started and what the player should do next.
+- Reframed diagnostics and related advanced controls as troubleshooting tools to keep the default window less intimidating.
+- Reduced top-bar decision density so first-time users see fewer immediate controls while still keeping expert options available in advanced views.
+
 ## v1.1.0
 
 ### Automation Compatibility Refactor

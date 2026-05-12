@@ -77,96 +77,95 @@ public sealed class MainWindow : Window
     {
         EnsurePlannerCache();
         var cache = this.plannerCache;
-        if (cache == null)
+        var snapshot = this.cachedSnapshot;
+        if (cache == null || snapshot == null)
         {
             return;
         }
 
-        DrawPlannerControls(cache);
-        DrawOnboardingWalkthrough();
-        DrawPlannerSummary(cache);
-        DrawDiagnosticsPanel(cache);
-
-        var tableFlags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable | ImGuiTableFlags.SortMulti;
-        if (!ImGui.BeginTable("societal-reputation-table", 8, tableFlags))
-        {
-            return;
-        }
-
-        SetupSortableColumns();
-        ImGui.TableHeadersRow();
-        if (TrySyncSortFromTableHeaders())
-        {
-            RebuildPlannerView();
-            cache = this.plannerCache;
-            if (cache == null)
-            {
-                ImGui.EndTable();
-                return;
-            }
-        }
-
-        for (var i = 0; i < cache.VisibleRows.Length; i++)
-        {
-            DrawRow(cache, cache.VisibleRows[i]);
-        }
-
-        ImGui.EndTable();
+        var monitor = this.automationService.GetMonitorState();
+        DrawModeHeader();
+        DrawPlannerControls(cache, monitor);
+        DrawOnboardingChecklist(cache, snapshot);
+        DrawHeroSection(cache, snapshot, monitor);
+        DrawSummarySection(cache, snapshot, monitor);
+        DrawTroubleshootingPanel(cache, monitor);
+        DrawSocietyTable(cache);
     }
 
-    private void DrawPlannerControls(PlannerViewCache cache)
+    private void DrawModeHeader()
     {
-        var showCompleted = this.configuration.ShowCompletedDailies;
-        if (ImGui.Checkbox("Show completed dailies", ref showCompleted))
+        var advancedMode = this.configuration.IsAdvancedModeEnabled;
+        if (ImGui.Checkbox("Advanced mode", ref advancedMode))
         {
-            this.configuration.ShowCompletedDailies = showCompleted;
+            this.configuration.IsAdvancedModeEnabled = advancedMode;
             SaveConfiguration();
         }
 
-        ImGui.SameLine();
-        var onlyActionable = this.configuration.OnlyShowActionableSocieties;
-        if (ImGui.Checkbox("Only actionable", ref onlyActionable))
-        {
-            this.configuration.OnlyShowActionableSocieties = onlyActionable;
-            SaveConfiguration();
-        }
+        DrawTooltip("Show advanced planner controls, extra sorting, and troubleshooting details.");
 
         ImGui.SameLine();
-        var activityFilter = this.configuration.PreferredActivityFilter;
-        if (DrawEnumCombo("Focus", ref activityFilter))
-        {
-            this.configuration.PreferredActivityFilter = activityFilter;
-            SaveConfiguration();
-        }
-
-        ImGui.SameLine();
-        var sortMode = this.configuration.SortMode;
-        if (DrawEnumCombo("Sort", ref sortMode))
-        {
-            this.configuration.SortMode = sortMode;
-            this.configuration.SortAscending = GetDefaultSortDirection(sortMode);
-            this.suppressHeaderSortSync = true;
-            SaveConfiguration();
-        }
-        ImGui.SameLine();
-        ImGui.TextDisabled($"Sort: {this.configuration.SortMode} {(this.configuration.SortAscending ? "↑" : "↓")}");
-        ImGui.SameLine();
-        if (ImGui.SmallButton("⚙##alert-settings"))
+        if (ImGui.SmallButton("Settings##alert-settings"))
         {
             ImGui.OpenPopup(AlertSettingsPopupId);
         }
-        DrawTooltip("Open alert settings.");
-        DrawAlertSettingsPopup();
-        DrawAutomationHelpHint(cache);
 
+        DrawTooltip("Open alert and automation settings.");
+        DrawAlertSettingsPopup();
+    }
+
+    private void DrawPlannerControls(PlannerViewCache cache, AutomationMonitorState monitor)
+    {
         var recommendation = cache.RecommendationRow;
         var canRunRecommended = recommendation?.Row.DailyStatus.CanExecuteAction == true;
+
+        if (this.configuration.IsAdvancedModeEnabled)
+        {
+            var showCompleted = this.configuration.ShowCompletedDailies;
+            if (ImGui.Checkbox("Show completed societies", ref showCompleted))
+            {
+                this.configuration.ShowCompletedDailies = showCompleted;
+                SaveConfiguration();
+            }
+
+            ImGui.SameLine();
+            var onlyActionable = this.configuration.OnlyShowActionableSocieties;
+            if (ImGui.Checkbox("Only show societies I can do right now", ref onlyActionable))
+            {
+                this.configuration.OnlyShowActionableSocieties = onlyActionable;
+                SaveConfiguration();
+            }
+
+            ImGui.SameLine();
+            var activityFilter = this.configuration.PreferredActivityFilter;
+            if (DrawEnumCombo("Preferred activity", ref activityFilter))
+            {
+                this.configuration.PreferredActivityFilter = activityFilter;
+                SaveConfiguration();
+            }
+
+            ImGui.SameLine();
+            var sortMode = this.configuration.SortMode;
+            if (DrawEnumCombo("Table order", ref sortMode))
+            {
+                this.configuration.SortMode = sortMode;
+                this.configuration.SortAscending = GetDefaultSortDirection(sortMode);
+                this.suppressHeaderSortSync = true;
+                SaveConfiguration();
+            }
+
+            ImGui.SameLine();
+            ImGui.TextDisabled($"Order: {this.configuration.SortMode} {(this.configuration.SortAscending ? "ascending" : "descending")}");
+        }
+
+        DrawAutomationHelpHint(cache, monitor);
+
         if (!canRunRecommended)
         {
             ImGui.BeginDisabled();
         }
 
-        if (ImGui.Button("Start / continue recommended dailies"))
+        if (ImGui.Button("Do next recommended quests"))
         {
             if (recommendation != null)
             {
@@ -182,41 +181,61 @@ public sealed class MainWindow : Window
             ImGui.EndDisabled();
         }
 
-        ImGui.SameLine();
-        if (ImGui.Button("Stop automation"))
+        if (monitor.IsRunning)
         {
-            this.automationService.Stop();
-            this.automationService.InvalidateStatusCache();
-            InvalidateRawData();
+            ImGui.SameLine();
+            if (ImGui.Button("Stop quest automation"))
+            {
+                this.automationService.Stop();
+                this.automationService.InvalidateStatusCache();
+                InvalidateRawData();
+            }
         }
     }
 
-    private void DrawOnboardingWalkthrough()
+    private void DrawOnboardingChecklist(PlannerViewCache cache, ReputationSnapshot snapshot)
     {
         if (!this.configuration.ShowOnboardingWalkthrough || this.configuration.OnboardingDismissed)
         {
             return;
         }
 
-        ImGui.TextUnformatted("Quick Start");
-        ImGui.Separator();
-        ImGui.TextUnformatted("1) Tribal allowances and daily limits");
-        ImGui.TextDisabled("You can accept up to 12 tribal quests per day, typically up to 3 from one society.");
-        ImGui.TextUnformatted("2) How recommendations work");
-        ImGui.TextDisabled("Recommendations prioritize actionable rows, daily readiness, and distance to next rank.");
-        ImGui.TextUnformatted("3) Why rows are blocked");
-        ImGui.TextDisabled("Rows may be blocked by unlock prerequisites, no available daily, or automation setup gaps.");
-        ImGui.TextUnformatted("4) How automation works");
-        ImGui.TextDisabled("Automation uses Questionable IPC. Tracking still works if Questionable is unavailable.");
+        var automationAvailable = this.automationService.IsAvailable();
+        var unlockedCount = CountRows(this.cachedRowStates, static row => row.Row.Progress.IsUnlocked);
+        var hasSomethingToDo = cache.ActionableCount > 0 || snapshot.AcceptedDailyQuests > 0;
 
-        if (ImGui.Button("Dismiss"))
+        ImGui.TextUnformatted("Getting Started");
+        ImGui.Separator();
+        DrawChecklistStep("Tracking", "Ready", "Reputation tracking is working for this character.");
+        DrawChecklistStep(
+            "Automation helper",
+            automationAvailable ? "Ready" : "Needs attention",
+            automationAvailable
+                ? "Quest automation is available if you want help picking up and continuing dailies."
+                : "Install or enable Questionable if you want automatic quest pickup. Tracking still works without it.");
+        DrawChecklistStep(
+            "Societies unlocked",
+            unlockedCount > 0 ? "Ready" : "Needs attention",
+            unlockedCount > 0
+                ? $"{unlockedCount} society row(s) are unlocked and can be tracked."
+                : "You have not unlocked any tracked societies on this character yet.");
+        DrawChecklistStep(
+            "Ready today",
+            hasSomethingToDo ? "Ready" : snapshot.RemainingAllowances == 0 ? "Unavailable" : "Needs attention",
+            hasSomethingToDo
+                ? "You have a clear next step today."
+                : snapshot.RemainingAllowances == 0
+                    ? "You are out of daily allowances until reset."
+                    : "No startable society quests are ready right now.");
+
+        if (ImGui.Button("Hide checklist"))
         {
             this.configuration.ShowOnboardingWalkthrough = false;
             SaveConfiguration();
         }
 
         ImGui.SameLine();
-        if (ImGui.Button("Don't show again"))
+        if (ImGui.Button("Do not show again"))
         {
             this.configuration.ShowOnboardingWalkthrough = false;
             this.configuration.OnboardingDismissed = true;
@@ -226,147 +245,142 @@ public sealed class MainWindow : Window
         ImGui.Separator();
     }
 
-    private void DrawAlertSettingsPopup()
+    private static void DrawChecklistStep(string title, string state, string description)
     {
-        if (!ImGui.BeginPopup(AlertSettingsPopupId))
-        {
-            return;
-        }
+        ImGui.TextUnformatted($"{title}: {state}");
+        ImGui.TextDisabled(description);
+    }
 
-        ImGui.TextUnformatted("Alert settings");
+    private void DrawHeroSection(PlannerViewCache cache, ReputationSnapshot snapshot, AutomationMonitorState monitor)
+    {
+        ImGui.TextUnformatted("What should I do next?");
         ImGui.Separator();
 
-        var enableToastAlerts = this.configuration.EnableToastAlerts;
-        if (ImGui.Checkbox("Enable toast alerts", ref enableToastAlerts))
+        if (TryDrawEmptyState(cache, snapshot))
         {
-            this.configuration.EnableToastAlerts = enableToastAlerts;
-            SaveConfiguration();
-        }
-        DrawTooltip("Show selected alerts as in-game toasts.");
-
-        var enableChatAlerts = this.configuration.EnableChatAlerts;
-        if (ImGui.Checkbox("Enable chat alerts", ref enableChatAlerts))
-        {
-            this.configuration.EnableChatAlerts = enableChatAlerts;
-            SaveConfiguration();
-        }
-        DrawTooltip("Print selected alerts to the chat log.");
-
-        var notifyDailyReset = this.configuration.NotifyDailyReset;
-        if (ImGui.Checkbox("Daily allowance reset", ref notifyDailyReset))
-        {
-            this.configuration.NotifyDailyReset = notifyDailyReset;
-            SaveConfiguration();
-        }
-        DrawTooltip("Alert when tribal allowances refresh after daily reset.");
-
-        var notifySocietyUnlocked = this.configuration.NotifySocietyUnlocked;
-        if (ImGui.Checkbox("Society unlocked", ref notifySocietyUnlocked))
-        {
-            this.configuration.NotifySocietyUnlocked = notifySocietyUnlocked;
-            SaveConfiguration();
-        }
-        DrawTooltip("Alert when a society becomes newly unlocked.");
-
-        var notifyRankUpAvailable = this.configuration.NotifyRankUpAvailable;
-        if (ImGui.Checkbox("Rank-up available", ref notifyRankUpAvailable))
-        {
-            this.configuration.NotifyRankUpAvailable = notifyRankUpAvailable;
-            SaveConfiguration();
-        }
-        DrawTooltip("Alert when a society becomes ready to rank up.");
-
-        var notifyAutomationStalled = this.configuration.NotifyAutomationStalled;
-        if (ImGui.Checkbox("Automation stalled", ref notifyAutomationStalled))
-        {
-            this.configuration.NotifyAutomationStalled = notifyAutomationStalled;
-            SaveConfiguration();
-        }
-        DrawTooltip("Alert when Questionable keeps running but no daily quest progress is detected for a while.");
-
-        var notifyPrerequisiteMet = this.configuration.NotifyPrerequisiteMet;
-        if (ImGui.Checkbox("Prerequisite met", ref notifyPrerequisiteMet))
-        {
-            this.configuration.NotifyPrerequisiteMet = notifyPrerequisiteMet;
-            SaveConfiguration();
-        }
-        DrawTooltip("Alert when a previously blocked society becomes actionable.");
-
-        ImGui.EndPopup();
-    }
-
-    private void DrawAutomationHelpHint(PlannerViewCache cache)
-    {
-        var hint = cache.AutomationState switch
-        {
-            "Questionable: unavailable" => "Automation setup: enable Questionable and complete its setup to use start/continue actions.",
-            "Questionable: running" => "Automation is currently running. Use Stop automation to pause or switch targets.",
-            _ => "Automation ready: Start / continue recommended dailies follows the top recommendation.",
-        };
-
-        ImGui.TextDisabled(hint);
-        DrawTooltip("Automation uses Questionable IPC only for quest pickup/continuation; reputation tracking is unaffected.");
-    }
-
-    private void DrawPlannerSummary(PlannerViewCache cache)
-    {
-        var snapshot = this.cachedSnapshot;
-        if (snapshot == null)
-        {
+            ImGui.Separator();
             return;
         }
 
-        ImGui.TextDisabled(cache.AutomationState);
-        ImGui.TextUnformatted($"Daily reset in: {cache.ResetCountdownText}");
-        ImGui.TextUnformatted($"Tribal allowances: {snapshot.RemainingAllowances}/{snapshot.TotalAllowances} remaining");
-        ImGui.TextDisabled($"{snapshot.AcceptedDailyQuests} accepted daily quest(s) active across all societies.");
-        DrawDashboard(cache);
+        var recommendationRow = cache.RecommendationRow;
+        if (recommendationRow == null)
+        {
+            ImGui.TextDisabled("Nothing needs attention right now.");
+            ImGui.TextDisabled(cache.Recommendation.Reason);
+            ImGui.Separator();
+            return;
+        }
+
+        var progress = recommendationRow.Row.Progress;
+        var dailyStatus = recommendationRow.Row.DailyStatus;
+        var statusLine = BuildHeroStatusText(recommendationRow);
+
+        ImGui.TextUnformatted(progress.Society.Name);
+        ImGui.TextDisabled($"{progress.Society.Expansion} {Bullet()} {progress.Society.Activity}");
+        ImGui.TextUnformatted(statusLine);
+        ImGui.TextDisabled(cache.Recommendation.Reason);
+
+        if (!progress.IsMaxRank && progress.CurrentRank.MaximumReputation > 0)
+        {
+            ImGui.ProgressBar(progress.RankProgress, FillWidthProgressBarSize, $"{progress.CurrentReputation:N0} / {progress.CurrentRank.MaximumReputation:N0}");
+            DrawTooltip($"{GetRankUpDistance(progress):N0} reputation remaining to rank up.");
+        }
+
+        if (dailyStatus.CanExecuteAction)
+        {
+            if (ImGui.Button($"{recommendationRow.ActionLabelText}##hero-action"))
+            {
+                this.automationService.StartOrContinueDaily(progress.Society);
+                this.automationService.InvalidateStatusCache();
+                InvalidateRawData();
+            }
+        }
+        else
+        {
+            ImGui.BeginDisabled();
+            ImGui.Button($"{recommendationRow.ActionLabelText}##hero-action-disabled");
+            ImGui.EndDisabled();
+        }
+
+        ImGui.SameLine();
+        ImGui.TextDisabled(monitor.LastMessage);
+        DrawTooltip(dailyStatus.StatusMessage);
+        ImGui.Separator();
+    }
+
+    private bool TryDrawEmptyState(PlannerViewCache cache, ReputationSnapshot snapshot)
+    {
+        var unlockedCount = CountRows(this.cachedRowStates, static row => row.Row.Progress.IsUnlocked);
+        if (unlockedCount == 0)
+        {
+            ImGui.TextDisabled("You have not unlocked any tracked societies yet.");
+            ImGui.TextDisabled("Unlock a society first, then come back here for daily guidance.");
+            return true;
+        }
+
+        if (snapshot.RemainingAllowances == 0 && snapshot.AcceptedDailyQuests == 0)
+        {
+            ImGui.TextDisabled("You have used all of today's society allowances.");
+            ImGui.TextDisabled($"Come back in {cache.ResetCountdownText} when daily allowances reset.");
+            return true;
+        }
+
+        if (!this.automationService.IsAvailable())
+        {
+            ImGui.TextDisabled("Automation requires the Questionable plugin.");
+            ImGui.TextDisabled("Tracking still works without it, but automatic quest pickup is unavailable.");
+            return true;
+        }
+
+        if (cache.RecommendationRow == null)
+        {
+            ImGui.TextDisabled("No society needs a startable step right now.");
+            ImGui.TextDisabled("Try again after reset or switch to advanced mode to review every society.");
+            return true;
+        }
+
+        return false;
+    }
+
+    private void DrawSummarySection(PlannerViewCache cache, ReputationSnapshot snapshot, AutomationMonitorState monitor)
+    {
+        ImGui.TextUnformatted("Today at a glance");
+        ImGui.Separator();
+        ImGui.TextUnformatted($"Daily allowances left: {snapshot.RemainingAllowances}/{snapshot.TotalAllowances}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Societies I can do now: {cache.ActionableCount}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Quests already accepted: {snapshot.AcceptedDailyQuests}");
+        ImGui.SameLine();
+        ImGui.TextUnformatted($"Reset in: {cache.ResetCountdownText}");
 
         var achievementSnapshot = this.cachedAchievementSnapshot;
         if (achievementSnapshot != null)
         {
-            ImGui.TextUnformatted($"Relevant achievements: {achievementSnapshot.CompletedAchievementCount}/{achievementSnapshot.TotalAchievementCount} complete");
-            ImGui.TextDisabled($"{achievementSnapshot.FullyCompletedSocietyCount}/{snapshot.Progress.Count} societies have all tracked milestones complete.");
-            if (!achievementSnapshot.IsAchievementListLoaded)
-            {
-                ImGui.TextDisabled(achievementSnapshot.StatusMessage);
-            }
+            ImGui.TextDisabled($"Achievement progress: {achievementSnapshot.CompletedAchievementCount}/{achievementSnapshot.TotalAchievementCount} tracked milestones complete.");
         }
 
-        ImGui.TextUnformatted(cache.Recommendation.Summary);
-        ImGui.TextDisabled(cache.Recommendation.Reason);
-        ImGui.SameLine();
-        ImGui.TextDisabled("[?]");
-        DrawTooltip("Recommendation factors: actionability, quest readiness, progress state, and reputation distance to next rank.");
-        DrawTooltip("Recommendation is based on actionability, quest readiness, and distance to rank up.");
-        var monitor = this.automationService.GetMonitorState();
-        ImGui.TextDisabled(monitor.LastMessage);
-        DrawTooltip(monitor.LastMessage);
+        ImGui.TextDisabled(GetFriendlyAutomationMessage(cache, monitor));
+        DrawTooltip("Automation details stay available in troubleshooting and advanced mode.");
         ImGui.Separator();
     }
 
-    private static void DrawDashboard(PlannerViewCache cache)
+    private void DrawTroubleshootingPanel(PlannerViewCache cache, AutomationMonitorState monitor)
     {
-        ImGui.TextUnformatted($"Actionable: {cache.ActionableCount}");
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"In progress: {cache.InProgressCount}");
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"Blocked: {cache.BlockedCount}");
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"Near rank-up: {cache.NearRankUpCount}");
-        ImGui.SameLine();
-        ImGui.TextUnformatted($"Maxed: {cache.MaxedCount}");
-    }
-
-    private void DrawDiagnosticsPanel(PlannerViewCache cache)
-    {
-        if (!ImGui.CollapsingHeader("Diagnostics"))
+        if (!this.configuration.IsAdvancedModeEnabled)
         {
             return;
         }
 
-        ImGui.TextUnformatted($"Actionable societies: {cache.ActionableCount}");
-        ImGui.TextDisabled($"{cache.InProgressCount} in progress, {cache.BlockedCount} blocked today, {cache.SetupCount} need setup");
+        if (!ImGui.CollapsingHeader("Troubleshooting"))
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted($"Automation status: {GetFriendlyAutomationTitle(cache.AutomationState)}");
+        ImGui.TextDisabled(monitor.LastMessage);
+        ImGui.TextUnformatted($"Societies I can do now: {cache.ActionableCount}");
+        ImGui.TextDisabled($"{cache.InProgressCount} active, {cache.BlockedCount} blocked today, {cache.SetupCount} still need setup.");
 
         for (var i = 0; i < cache.DiagnosticsRows.Length; i++)
         {
@@ -377,7 +391,115 @@ public sealed class MainWindow : Window
         ImGui.Separator();
     }
 
-    private void DrawRow(PlannerViewCache cache, RowViewState rowState)
+    private void DrawSocietyTable(PlannerViewCache cache)
+    {
+        var tableFlags = this.configuration.IsAdvancedModeEnabled
+            ? ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable | ImGuiTableFlags.Sortable | ImGuiTableFlags.SortMulti
+            : ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.Resizable;
+
+        var columnCount = this.configuration.IsAdvancedModeEnabled ? 8 : 5;
+        if (!ImGui.BeginTable("societal-reputation-table", columnCount, tableFlags))
+        {
+            return;
+        }
+
+        if (this.configuration.IsAdvancedModeEnabled)
+        {
+            SetupAdvancedColumns();
+            ImGui.TableHeadersRow();
+            if (TrySyncSortFromTableHeaders())
+            {
+                RebuildPlannerView();
+                cache = this.plannerCache ?? cache;
+            }
+        }
+        else
+        {
+            SetupSimpleColumns();
+            ImGui.TableHeadersRow();
+        }
+
+        for (var i = 0; i < cache.VisibleRows.Length; i++)
+        {
+            if (this.configuration.IsAdvancedModeEnabled)
+            {
+                DrawAdvancedRow(cache, cache.VisibleRows[i]);
+            }
+            else
+            {
+                DrawSimpleRow(cache, cache.VisibleRows[i]);
+            }
+        }
+
+        ImGui.EndTable();
+    }
+
+    private void SetupSimpleColumns()
+    {
+        ImGui.TableSetupColumn("Society");
+        ImGui.TableSetupColumn("Type");
+        ImGui.TableSetupColumn("Progress");
+        ImGui.TableSetupColumn("Why this matters");
+        ImGui.TableSetupColumn("Next step");
+    }
+
+    private void SetupAdvancedColumns()
+    {
+        ImGui.TableSetupColumn("Society", GetSortableColumnFlags(SortColumnKey.Society), 0, (uint)SortColumnKey.Society);
+        ImGui.TableSetupColumn("Activity", GetSortableColumnFlags(SortColumnKey.Activity), 0, (uint)SortColumnKey.Activity);
+        ImGui.TableSetupColumn("Rank", GetSortableColumnFlags(SortColumnKey.Rank), 0, (uint)SortColumnKey.Rank);
+        ImGui.TableSetupColumn("Reputation", GetSortableColumnFlags(SortColumnKey.Reputation), 0, (uint)SortColumnKey.Reputation);
+        ImGui.TableSetupColumn("Progress", GetSortableColumnFlags(SortColumnKey.Progress), 0, (uint)SortColumnKey.Progress);
+        ImGui.TableSetupColumn("ETA", GetSortableColumnFlags(SortColumnKey.Eta), 0, (uint)SortColumnKey.Eta);
+        ImGui.TableSetupColumn("Dailies", GetSortableColumnFlags(SortColumnKey.Dailies), 0, (uint)SortColumnKey.Dailies);
+        ImGui.TableSetupColumn("Automation", ImGuiTableColumnFlags.NoSort, 0, (uint)SortColumnKey.Automation);
+    }
+
+    private void DrawSimpleRow(PlannerViewCache cache, RowViewState rowState)
+    {
+        var progress = rowState.Row.Progress;
+        var dailyStatus = rowState.Row.DailyStatus;
+
+        ImGui.TableNextRow();
+        ImGui.TableSetBgColor(ImGuiTableBgTarget.RowBg0, rowState.RowColorU32);
+
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted(progress.Society.Name);
+        ImGui.TextDisabled(progress.Society.Expansion);
+        if (ReferenceEquals(cache.RecommendationRow, rowState))
+        {
+            ImGui.TextDisabled("Best next step");
+        }
+
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted(progress.Society.Activity);
+        ImGui.TextDisabled(progress.CurrentRank.Name);
+
+        ImGui.TableNextColumn();
+        if (!progress.IsUnlocked)
+        {
+            ImGui.TextDisabled("Locked");
+        }
+        else if (progress.IsMaxRank)
+        {
+            ImGui.TextUnformatted("Max rank reached");
+        }
+        else
+        {
+            ImGui.TextUnformatted($"{progress.CurrentReputation:N0} / {progress.CurrentRank.MaximumReputation:N0}");
+            ImGui.ProgressBar(progress.RankProgress, FillWidthProgressBarSize, rowState.EtaSummary);
+        }
+
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted(BuildHeroStatusText(rowState));
+        ImGui.TextDisabled(rowState.Row.IsActionable ? dailyStatus.StatusMessage : rowState.BlockedInlineText);
+        DrawTooltip(rowState.BlockedTooltip);
+
+        ImGui.TableNextColumn();
+        DrawActionButton(rowState, progress.Society);
+    }
+
+    private void DrawAdvancedRow(PlannerViewCache cache, RowViewState rowState)
     {
         var progress = rowState.Row.Progress;
         var dailyStatus = rowState.Row.DailyStatus;
@@ -392,7 +514,7 @@ public sealed class MainWindow : Window
         DrawTooltip(rowState.Row.AchievementStatus.StatusMessage);
         if (ReferenceEquals(cache.RecommendationRow, rowState))
         {
-            ImGui.TextDisabled("Recommended next");
+            ImGui.TextDisabled("Best next step");
         }
 
         ImGui.TableNextColumn();
@@ -452,6 +574,18 @@ public sealed class MainWindow : Window
         }
 
         ImGui.TableNextColumn();
+        DrawActionButton(rowState, progress.Society);
+        ImGui.TextDisabled(dailyStatus.StatusMessage);
+        DrawTooltip(dailyStatus.StatusMessage);
+        if (!rowState.Row.IsActionable && !progress.IsMaxRank)
+        {
+            ImGui.TextDisabled(rowState.BlockedInlineText);
+            DrawTooltip(rowState.BlockedTooltip);
+        }
+    }
+
+    private void DrawActionButton(RowViewState rowState, SocietyInfo society)
+    {
         if (!rowState.CanStartDaily)
         {
             ImGui.BeginDisabled();
@@ -459,7 +593,7 @@ public sealed class MainWindow : Window
 
         if (ImGui.Button(rowState.ButtonLabel))
         {
-            this.automationService.StartOrContinueDaily(progress.Society);
+            this.automationService.StartOrContinueDaily(society);
             this.automationService.InvalidateStatusCache();
             InvalidateRawData();
         }
@@ -467,14 +601,6 @@ public sealed class MainWindow : Window
         if (!rowState.CanStartDaily)
         {
             ImGui.EndDisabled();
-        }
-
-        ImGui.TextDisabled(dailyStatus.StatusMessage);
-        DrawTooltip(dailyStatus.StatusMessage);
-        if (!rowState.Row.IsActionable && !progress.IsMaxRank)
-        {
-            ImGui.TextDisabled(rowState.BlockedInlineText);
-            DrawTooltip(rowState.BlockedTooltip);
         }
     }
 
@@ -545,6 +671,7 @@ public sealed class MainWindow : Window
             CountRows(this.cachedRowStates, static row => row.Row.DailyStatus.Readiness == DailyQuestReadiness.LockedOrUnavailable),
             CountRows(this.cachedRowStates, static row => row.Row.Progress.IsMaxRank),
             CountRows(this.cachedRowStates, static row => row.IsNearRankUp),
+            CountRows(this.cachedRowStates, static row => row.Row.Progress.IsUnlocked),
             BuildResetCountdownText(DateTime.UtcNow),
             BuildAutomationState(),
             this.rawDataVersion,
@@ -563,12 +690,18 @@ public sealed class MainWindow : Window
                 continue;
             }
 
-            if (this.configuration.OnlyShowActionableSocieties && !row.Row.IsActionable)
+            if (!this.configuration.IsAdvancedModeEnabled && row.Row.Progress.IsMaxRank)
             {
                 continue;
             }
 
-            if (!MatchesActivityFilter(row.Row.Progress.Society.Activity, this.configuration.PreferredActivityFilter))
+            if (this.configuration.IsAdvancedModeEnabled && this.configuration.OnlyShowActionableSocieties && !row.Row.IsActionable)
+            {
+                continue;
+            }
+
+            if (this.configuration.IsAdvancedModeEnabled
+                && !MatchesActivityFilter(row.Row.Progress.Society.Activity, this.configuration.PreferredActivityFilter))
             {
                 continue;
             }
@@ -580,7 +713,7 @@ public sealed class MainWindow : Window
         return [.. visibleRows];
     }
 
-    private RowViewState[] BuildDiagnosticsRows(RowViewState[] rows)
+    private static RowViewState[] BuildDiagnosticsRows(RowViewState[] rows)
     {
         var diagnosticsRows = new List<RowViewState>(rows.Length);
         for (var i = 0; i < rows.Length; i++)
@@ -615,7 +748,8 @@ public sealed class MainWindow : Window
                 continue;
             }
 
-            if (!MatchesActivityFilter(row.Row.Progress.Society.Activity, this.configuration.PreferredActivityFilter))
+            if (this.configuration.IsAdvancedModeEnabled
+                && !MatchesActivityFilter(row.Row.Progress.Society.Activity, this.configuration.PreferredActivityFilter))
             {
                 continue;
             }
@@ -629,14 +763,14 @@ public sealed class MainWindow : Window
         return bestRow;
     }
 
-    private PlannerRecommendation BuildRecommendation(RowViewState? recommendedRow)
+    private static PlannerRecommendation BuildRecommendation(RowViewState? recommendedRow)
     {
         if (recommendedRow == null)
         {
             return new PlannerRecommendation(
                 null,
-                "No recommended society has a startable next step.",
-                "Try changing the focus filter or waiting for new dailies to unlock.");
+                "Nothing needs your attention right now.",
+                "Try again after reset or switch to advanced mode to review every society.");
         }
 
         var progress = recommendedRow.Row.Progress;
@@ -644,7 +778,7 @@ public sealed class MainWindow : Window
             ? recommendedRow.Row.DailyStatus.StatusMessage
             : progress.IsMaxRank
                 ? "Already at max rank."
-                : "Not currently startable, but still your closest active goal.";
+                : "This is still your closest active goal.";
         var rankRemaining = progress.CurrentRank.MaximumReputation == 0
             ? 0
             : Math.Max(0, progress.CurrentRank.MaximumReputation - progress.CurrentReputation);
@@ -652,13 +786,13 @@ public sealed class MainWindow : Window
         var etaText = eta.Kind switch
         {
             EtaKind.Completed => "Completed.",
-            EtaKind.Projected => $"{eta.StatusPhrase} Target: {eta.EstimatedCompletionUtc:ddd, MMM d}. Rep/week: {eta.ProjectedReputationPerWeek:N0}. Ranks/week: {eta.ProjectedRanksPerWeek:0.00}.",
+            EtaKind.Projected => $"{eta.StatusPhrase} Target: {eta.EstimatedCompletionUtc:ddd, MMM d}.",
             _ => "No projection available.",
         };
 
         return new PlannerRecommendation(
             recommendedRow.Row,
-            $"Recommended: {progress.Society.Name}",
+            $"Next recommended society: {progress.Society.Name}",
             rankRemaining > 0
                 ? $"{reason} {rankRemaining:N0} reputation to the next rank. {etaText}"
                 : reason);
@@ -691,6 +825,7 @@ public sealed class MainWindow : Window
             dailyStatus.CanExecuteAction,
             BuildDailyBreakdownText(dailyStatus),
             $"{dailyStatus.RecommendedActionLabel}###start-daily-{(byte)progress.Society.Id}",
+            dailyStatus.RecommendedActionLabel,
             BuildRowColor(visualState),
             BuildEtaSummaryText(eta),
             BuildEtaDetailText(eta),
@@ -709,12 +844,13 @@ public sealed class MainWindow : Window
 
         return row.DailyStatus.Readiness switch
         {
-            DailyQuestReadiness.Unconfigured => "Blocked: setup needed",
-            DailyQuestReadiness.Unavailable => "Blocked: automation unavailable",
-            DailyQuestReadiness.LockedOrUnavailable => "Blocked: locked or unavailable",
-            DailyQuestReadiness.PickupPending => "Pickup pending",
-            DailyQuestReadiness.NoneAvailable => "Blocked: no daily available",
-            _ => "Blocked: not currently actionable",
+            DailyQuestReadiness.Unconfigured => "Set up automation for this society first.",
+            DailyQuestReadiness.Unavailable => "Automation helper is not available right now.",
+            DailyQuestReadiness.LockedOrUnavailable when !row.Progress.IsUnlocked => "Unlock this society first.",
+            DailyQuestReadiness.LockedOrUnavailable => "This society's quests are locked or unavailable right now.",
+            DailyQuestReadiness.PickupPending => "Waiting for remaining quests to appear.",
+            DailyQuestReadiness.NoneAvailable => "No daily quests are available until reset.",
+            _ => "This society cannot be started right now.",
         };
     }
 
@@ -727,11 +863,12 @@ public sealed class MainWindow : Window
 
         return row.DailyStatus.Readiness switch
         {
-            DailyQuestReadiness.Unconfigured => "Complete Questionable setup for this quest range, then retry automation.",
-            DailyQuestReadiness.Unavailable => "Questionable IPC is unavailable. Enable Questionable for automation, or continue manually.",
-            DailyQuestReadiness.LockedOrUnavailable => "Quest is locked or unobtainable right now. Check prerequisites or wait for daily refresh.",
+            DailyQuestReadiness.Unconfigured => "Complete the automation setup for this society if you want automatic quest pickup.",
+            DailyQuestReadiness.Unavailable => "Questionable is unavailable. Tracking still works, but automation cannot start quests right now.",
+            DailyQuestReadiness.LockedOrUnavailable when !row.Progress.IsUnlocked => "This society is still locked for this character.",
+            DailyQuestReadiness.LockedOrUnavailable => "The quest chain is locked or temporarily unavailable. Try again later or after checking prerequisites.",
             DailyQuestReadiness.PickupPending => row.DailyStatus.StatusMessage,
-            DailyQuestReadiness.NoneAvailable => "No obtainable daily right now. Try again after reset.",
+            DailyQuestReadiness.NoneAvailable => "No obtainable daily quests are available for this society right now.",
             _ => row.DailyStatus.StatusMessage,
         };
     }
@@ -740,14 +877,31 @@ public sealed class MainWindow : Window
     {
         return dailyStatus.Readiness switch
         {
-            DailyQuestReadiness.PickupPending => $"{dailyStatus.AcceptedQuestCount} accepted, {dailyStatus.ReadyQuestCount} still ready to accept",
+            DailyQuestReadiness.PickupPending => $"{dailyStatus.AcceptedQuestCount} accepted, {dailyStatus.ReadyQuestCount} still ready to appear",
             DailyQuestReadiness.ReadyToTurnIn => dailyStatus.ReadyQuestCount > 0
-                ? $"{dailyStatus.CompletedQuestCount} complete, {dailyStatus.ReadyQuestCount} still ready to accept, hand-in after pickups"
+                ? $"{dailyStatus.CompletedQuestCount} complete, more pickups still appearing"
                 : $"{dailyStatus.CompletedQuestCount} complete, ready to hand in",
             DailyQuestReadiness.InProgress => dailyStatus.CompletedQuestCount > 0
                 ? $"{dailyStatus.CompletedQuestCount} complete, keep going"
-                : "finish remaining objectives",
+                : "Finish the remaining objectives",
             _ => $"{dailyStatus.CompletedQuestCount} completed, {dailyStatus.ReadyQuestCount} ready, {dailyStatus.BlockedQuestCount} blocked",
+        };
+    }
+
+    private static string BuildHeroStatusText(RowViewState row)
+    {
+        var dailyStatus = row.Row.DailyStatus;
+        return dailyStatus.Readiness switch
+        {
+            DailyQuestReadiness.Ready => $"{dailyStatus.ReadyQuestCount} quest(s) are ready to start.",
+            DailyQuestReadiness.PickupPending => "Finish picking up the remaining quests first.",
+            DailyQuestReadiness.InProgress => "You already have quests in progress here.",
+            DailyQuestReadiness.ReadyToTurnIn => "Your accepted quests are ready to hand in.",
+            DailyQuestReadiness.NoneAvailable => "No daily quests are available right now.",
+            DailyQuestReadiness.Unavailable => "Automation is unavailable, but tracking still works.",
+            DailyQuestReadiness.Unconfigured => "Automation setup is still needed for this society.",
+            DailyQuestReadiness.LockedOrUnavailable => row.BlockedInlineText,
+            _ => row.Row.DailyStatus.StatusMessage,
         };
     }
 
@@ -859,18 +1013,6 @@ public sealed class MainWindow : Window
         return this.configuration.SortAscending
             ? baseComparer
             : (left, right) => baseComparer(right, left);
-    }
-
-    private void SetupSortableColumns()
-    {
-        ImGui.TableSetupColumn("Society", GetSortableColumnFlags(SortColumnKey.Society), 0, (uint)SortColumnKey.Society);
-        ImGui.TableSetupColumn("Activity", GetSortableColumnFlags(SortColumnKey.Activity), 0, (uint)SortColumnKey.Activity);
-        ImGui.TableSetupColumn("Rank", GetSortableColumnFlags(SortColumnKey.Rank), 0, (uint)SortColumnKey.Rank);
-        ImGui.TableSetupColumn("Reputation", GetSortableColumnFlags(SortColumnKey.Reputation), 0, (uint)SortColumnKey.Reputation);
-        ImGui.TableSetupColumn("Progress", GetSortableColumnFlags(SortColumnKey.Progress), 0, (uint)SortColumnKey.Progress);
-        ImGui.TableSetupColumn("ETA", GetSortableColumnFlags(SortColumnKey.Eta), 0, (uint)SortColumnKey.Eta);
-        ImGui.TableSetupColumn("Dailies", GetSortableColumnFlags(SortColumnKey.Dailies), 0, (uint)SortColumnKey.Dailies);
-        ImGui.TableSetupColumn("Automation", ImGuiTableColumnFlags.NoSort, 0, (uint)SortColumnKey.Automation);
     }
 
     private unsafe bool TrySyncSortFromTableHeaders()
@@ -1098,6 +1240,68 @@ public sealed class MainWindow : Window
         return ImGui.GetColorU32(color);
     }
 
+    private void DrawAlertSettingsPopup()
+    {
+        if (!ImGui.BeginPopup(AlertSettingsPopupId))
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted("Alerts and automation settings");
+        ImGui.Separator();
+
+        var enableToastAlerts = this.configuration.EnableToastAlerts;
+        if (ImGui.Checkbox("Show toast alerts", ref enableToastAlerts))
+        {
+            this.configuration.EnableToastAlerts = enableToastAlerts;
+            SaveConfiguration();
+        }
+
+        var enableChatAlerts = this.configuration.EnableChatAlerts;
+        if (ImGui.Checkbox("Write alerts to chat", ref enableChatAlerts))
+        {
+            this.configuration.EnableChatAlerts = enableChatAlerts;
+            SaveConfiguration();
+        }
+
+        var notifyDailyReset = this.configuration.NotifyDailyReset;
+        if (ImGui.Checkbox("Alert when allowances reset", ref notifyDailyReset))
+        {
+            this.configuration.NotifyDailyReset = notifyDailyReset;
+            SaveConfiguration();
+        }
+
+        var notifySocietyUnlocked = this.configuration.NotifySocietyUnlocked;
+        if (ImGui.Checkbox("Alert when a society unlocks", ref notifySocietyUnlocked))
+        {
+            this.configuration.NotifySocietyUnlocked = notifySocietyUnlocked;
+            SaveConfiguration();
+        }
+
+        var notifyRankUpAvailable = this.configuration.NotifyRankUpAvailable;
+        if (ImGui.Checkbox("Alert when a rank-up is ready", ref notifyRankUpAvailable))
+        {
+            this.configuration.NotifyRankUpAvailable = notifyRankUpAvailable;
+            SaveConfiguration();
+        }
+
+        var notifyAutomationStalled = this.configuration.NotifyAutomationStalled;
+        if (ImGui.Checkbox("Alert when automation stops making progress", ref notifyAutomationStalled))
+        {
+            this.configuration.NotifyAutomationStalled = notifyAutomationStalled;
+            SaveConfiguration();
+        }
+
+        var notifyPrerequisiteMet = this.configuration.NotifyPrerequisiteMet;
+        if (ImGui.Checkbox("Alert when a blocked society becomes available", ref notifyPrerequisiteMet))
+        {
+            this.configuration.NotifyPrerequisiteMet = notifyPrerequisiteMet;
+            SaveConfiguration();
+        }
+
+        ImGui.EndPopup();
+    }
+
     private static void DrawTooltip(string text)
     {
         if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled) && !string.IsNullOrWhiteSpace(text))
@@ -1106,6 +1310,36 @@ public sealed class MainWindow : Window
             ImGui.TextUnformatted(text);
             ImGui.EndTooltip();
         }
+    }
+
+    private void DrawAutomationHelpHint(PlannerViewCache cache, AutomationMonitorState monitor)
+    {
+        ImGui.TextDisabled(GetFriendlyAutomationMessage(cache, monitor));
+        DrawTooltip("Advanced mode and troubleshooting include more technical automation details.");
+    }
+
+    private static string GetFriendlyAutomationTitle(string automationState)
+    {
+        return automationState switch
+        {
+            "Questionable: unavailable" => "Automation helper unavailable",
+            "Questionable: running" => "Quest automation running",
+            _ => "Automation ready",
+        };
+    }
+
+    private static string GetFriendlyAutomationMessage(PlannerViewCache cache, AutomationMonitorState monitor)
+    {
+        if (monitor.IsRunning)
+        {
+            return "Quest automation is currently working on your selected society.";
+        }
+
+        return cache.AutomationState switch
+        {
+            "Questionable: unavailable" => "Automation requires Questionable. Tracking still works without it.",
+            _ => "Automation is ready when you want help starting or continuing quests.",
+        };
     }
 
     private static string BuildEtaSummaryText(EtaInfo eta)
@@ -1133,7 +1367,7 @@ public sealed class MainWindow : Window
     {
         return eta.Kind switch
         {
-            EtaKind.Projected => $"{eta.DetailText}\nWeekly efficiency: {eta.ProjectedReputationPerWeek:N0} rep/week, {eta.ProjectedRanksPerWeek:0.00} ranks/week.",
+            EtaKind.Projected => $"{eta.DetailText}\nWeekly pace: {eta.ProjectedReputationPerWeek:N0} rep/week, {eta.ProjectedRanksPerWeek:0.00} ranks/week.",
             _ => eta.DetailText,
         };
     }
@@ -1182,6 +1416,11 @@ public sealed class MainWindow : Window
         this.viewInvalidated = true;
     }
 
+    private static string Bullet()
+    {
+        return "/";
+    }
+
     private sealed record RowViewState(
         SocietyPlannerRow Row,
         int RecommendationScore,
@@ -1189,6 +1428,7 @@ public sealed class MainWindow : Window
         bool CanStartDaily,
         string DailyBreakdownText,
         string ButtonLabel,
+        string ActionLabelText,
         uint RowColorU32,
         string EtaSummary,
         string EtaDetail,
@@ -1208,6 +1448,7 @@ public sealed class MainWindow : Window
         int BlockedCount,
         int MaxedCount,
         int NearRankUpCount,
+        int UnlockedCount,
         string ResetCountdownText,
         string AutomationState,
         int RawDataVersion,

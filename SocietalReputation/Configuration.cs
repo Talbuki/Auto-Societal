@@ -11,6 +11,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public bool IsMainWindowOpen { get; set; }
 
+    public bool IsAdvancedModeEnabled { get; set; }
+
     public bool ShowCompletedDailies { get; set; } = true;
 
     public bool OnlyShowActionableSocieties { get; set; } = true;
