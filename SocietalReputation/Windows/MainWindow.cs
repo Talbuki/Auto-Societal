@@ -1332,9 +1332,8 @@ public sealed class MainWindow : Window
         ImGui.TextUnformatted("Known issues");
         ImGui.Separator();
 
-        ImGui.BulletText("Automation depends on Questionable being installed and enabled.");
-        ImGui.BulletText("Some societies may show as unavailable if prerequisite detection is incomplete.");
-        ImGui.BulletText("ETA estimates are conservative and may not account for every bonus source.");
+        ImGui.BulletText("Accepts and Completes Quests 1 at a time.");
+        
 
         ImGui.EndPopup();
     }
@@ -1349,10 +1348,8 @@ public sealed class MainWindow : Window
         ImGui.TextUnformatted("Planned updates");
         ImGui.Separator();
 
-        ImGui.BulletText("Better prerequisite guidance for locked societies.");
-        ImGui.BulletText("More detailed automation status messages.");
-        ImGui.BulletText("Optional compact table view.");
-        ImGui.BulletText("Improved achievement tracking summaries.");
+        ImGui.BulletText("Questionable dependency to be removed");
+        
 
         ImGui.EndPopup();
     }
