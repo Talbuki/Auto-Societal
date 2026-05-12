@@ -1,7 +1,8 @@
 param(
     [string]$ProjectFile = "SocietalReputation/SocietalReputation.csproj",
     [string]$PluginMasterFile = "pluginmaster.json",
-    [string]$ArtifactZip = "SocietalReputation/bin/Release/SocietalReputation/latest.zip"
+    [string]$ArtifactZip = "SocietalReputation/bin/Release/SocietalReputation/latest.zip",
+    [string]$ExpectedArtifactFileName = "latest.zip"
 )
 
 $ErrorActionPreference = "Stop"
@@ -31,6 +32,11 @@ if (-not (Test-Path -LiteralPath $PluginMasterFile)) {
 
 if (-not (Test-Path -LiteralPath $ArtifactZip)) {
     throw "Expected packaged artifact not found at '$ArtifactZip'."
+}
+
+$artifactFileName = [System.IO.Path]::GetFileName($ArtifactZip)
+if ($artifactFileName -ne $ExpectedArtifactFileName) {
+    throw "Expected artifact file name '$ExpectedArtifactFileName' but found '$artifactFileName'."
 }
 
 [xml]$projectXml = Get-Content -LiteralPath $ProjectFile
@@ -78,14 +84,28 @@ try {
         throw "Packaged manifest InternalName '$($packagedManifest.InternalName)' does not match pluginmaster.json InternalName '$($pluginEntry.InternalName)'."
     }
 
+    if ([string]::IsNullOrWhiteSpace($packagedManifest.Name)) {
+        throw "Packaged manifest Name is missing."
+    }
+
+    if ([string]::IsNullOrWhiteSpace($packagedManifest.Punchline)) {
+        throw "Packaged manifest Punchline is missing."
+    }
+
     if ($packagedManifest.AssemblyVersion -ne $pluginEntry.AssemblyVersion) {
         throw "Packaged manifest AssemblyVersion '$($packagedManifest.AssemblyVersion)' does not match pluginmaster.json AssemblyVersion '$($pluginEntry.AssemblyVersion)'."
+    }
+
+    $packagedDllPath = Join-Path $extractPath "$($pluginEntry.InternalName).dll"
+    if (-not (Test-Path -LiteralPath $packagedDllPath)) {
+        throw "Packaged plugin assembly was not found at '$packagedDllPath'."
     }
 
     Write-Host "Validated release package successfully."
     Write-Host "Project version: $projectVersion"
     Write-Host "Assembly version: $($pluginEntry.AssemblyVersion)"
     Write-Host "Artifact: $ArtifactZip"
+    Write-Host "Packaged assembly: $packagedDllPath"
 }
 finally {
     if (Test-Path -LiteralPath $extractPath) {
