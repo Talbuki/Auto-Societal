@@ -1,5 +1,14 @@
 # Changelog
 
+## v1.2.4
+
+### Dedicated Auto-Start Targeting
+
+- Moved scheduled automation controls out of the general Settings popup into a dedicated `Auto-start` header popup.
+- Added a society picker for scheduled automation so players can choose the exact reputation target they want the timer to run.
+- Changed timed automation to use only the selected society instead of falling back to the planner recommendation.
+- Updated onboarding guidance so it points players to the new `Auto-start` header control for timed setup.
+
 ## v1.2.3
 
 ### Onboarding Refresh and Help Reopen

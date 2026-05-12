@@ -16,6 +16,7 @@ public sealed class MainWindow : Window
     private const int NearRankUpThresholdReputation = 240;
     private static readonly TimeSpan AutomaticStartPollInterval = TimeSpan.FromSeconds(1);
     private const string AlertSettingsPopupId = "alert-settings-popup";
+    private const string AutomaticStartPopupId = "automatic-start-popup";
     private const string KnownIssuesPopupId = "known-issues-popup";
     private const string PlannedUpdatesPopupId = "planned-updates-popup";
     private static readonly Vector2 FillWidthProgressBarSize = new(-1, 0);
@@ -130,6 +131,14 @@ public sealed class MainWindow : Window
         DrawTooltip("Open alert and automation settings.");
 
         ImGui.SameLine();
+        if (ImGui.SmallButton("Auto-start##automatic-start"))
+        {
+            ImGui.OpenPopup(AutomaticStartPopupId);
+        }
+
+        DrawTooltip("Choose a daily automatic start time and society.");
+
+        ImGui.SameLine();
         if (ImGui.SmallButton("Known issues##known-issues"))
         {
             ImGui.OpenPopup(KnownIssuesPopupId);
@@ -155,6 +164,7 @@ public sealed class MainWindow : Window
 
         DrawTooltip("Show the getting started checklist again.");
         DrawAlertSettingsPopup();
+        DrawAutomaticStartPopup();
         DrawKnownIssuesPopup();
         DrawPlannedUpdatesPopup();
     }
@@ -279,11 +289,11 @@ public sealed class MainWindow : Window
             autoStartEnabled ? "Ready" : "Optional",
             autoStartEnabled
                 ? $"Automatic start is enabled for {autoStartTime} local time each day."
-                : "Automatic start is off. Enable it in Settings if you want the recommended daily action to begin on a schedule.");
+                : "Automatic start is off. Use Auto-start in the header if you want a society to begin on a schedule.");
         DrawChecklistStep(
             "Need help later?",
             "Always available",
-            "Use Settings to adjust alerts and automation behavior, or click Help in the header to show this checklist again anytime.");
+            "Use Settings to adjust alerts, Auto-start to choose a timed society target, or Help to show this checklist again anytime.");
 
         if (ImGui.Button("Hide checklist"))
         {
@@ -1356,6 +1366,17 @@ public sealed class MainWindow : Window
             SaveConfiguration();
         }
 
+        ImGui.EndPopup();
+    }
+
+    private void DrawAutomaticStartPopup()
+    {
+        if (!ImGui.BeginPopup(AutomaticStartPopupId))
+        {
+            return;
+        }
+
+        ImGui.TextUnformatted("Automatic start");
         ImGui.Separator();
 
         var enableAutomaticStartTime = this.configuration.EnableAutomaticStartTime;
@@ -1377,6 +1398,54 @@ public sealed class MainWindow : Window
         {
             this.configuration.AutomaticStartMinuteLocal = automaticStartMinuteLocal;
             SaveConfiguration();
+        }
+
+        var selectedSocietyId = this.configuration.AutomaticStartSocietyId;
+        var selectedSocietyName = GetAutomaticStartSocietyName(selectedSocietyId) ?? "Choose a society...";
+        if (ImGui.BeginCombo("Scheduled society", selectedSocietyName))
+        {
+            var noSelection = selectedSocietyId == null;
+            if (ImGui.Selectable("Choose a society...", noSelection))
+            {
+                this.configuration.AutomaticStartSocietyId = null;
+                SaveConfiguration();
+            }
+
+            if (noSelection)
+            {
+                ImGui.SetItemDefaultFocus();
+            }
+
+            var progress = this.cachedSnapshot?.Progress;
+            if (progress != null)
+            {
+                for (var i = 0; i < progress.Count; i++)
+                {
+                    var society = progress[i].Society;
+                    var isSelected = selectedSocietyId == society.Id;
+                    if (ImGui.Selectable(society.Name, isSelected))
+                    {
+                        this.configuration.AutomaticStartSocietyId = society.Id;
+                        SaveConfiguration();
+                    }
+
+                    if (isSelected)
+                    {
+                        ImGui.SetItemDefaultFocus();
+                    }
+                }
+            }
+
+            ImGui.EndCombo();
+        }
+
+        if (selectedSocietyId == null)
+        {
+            ImGui.TextDisabled("No society selected yet.");
+        }
+        else
+        {
+            ImGui.TextDisabled($"Selected: {selectedSocietyName}");
         }
 
         ImGui.EndPopup();
@@ -1542,14 +1611,20 @@ public sealed class MainWindow : Window
             return;
         }
 
-        EnsurePlannerCache();
-        var recommendation = this.plannerCache?.RecommendationRow;
-        if (recommendation?.Row.DailyStatus.CanExecuteAction != true)
+        var selectedSocietyId = this.configuration.AutomaticStartSocietyId;
+        if (selectedSocietyId == null)
         {
             return;
         }
 
-        var result = this.automationService.StartOrContinueDaily(recommendation.Row.Progress.Society);
+        EnsurePlannerCache();
+        var selectedRow = GetRowState(selectedSocietyId.Value);
+        if (selectedRow?.Row.DailyStatus.CanExecuteAction != true)
+        {
+            return;
+        }
+
+        var result = this.automationService.StartOrContinueDaily(selectedRow.Row.Progress.Society);
         this.automationService.InvalidateStatusCache();
         InvalidateRawData();
 
@@ -1560,6 +1635,31 @@ public sealed class MainWindow : Window
 
         this.configuration.LastAutomaticStartDate = today;
         SaveConfiguration();
+    }
+
+    private RowViewState? GetRowState(EAlliedSociety societyId)
+    {
+        for (var i = 0; i < this.cachedRowStates.Length; i++)
+        {
+            var row = this.cachedRowStates[i];
+            if (row.Row.Progress.Society.Id == societyId)
+            {
+                return row;
+            }
+        }
+
+        return null;
+    }
+
+    private string? GetAutomaticStartSocietyName(EAlliedSociety? societyId)
+    {
+        if (societyId == null)
+        {
+            return null;
+        }
+
+        var row = GetRowState(societyId.Value);
+        return row?.Row.Progress.Society.Name;
     }
 
     private void InvalidateRawData()

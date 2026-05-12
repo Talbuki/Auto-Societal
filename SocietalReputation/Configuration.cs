@@ -47,6 +47,8 @@ public sealed class Configuration : IPluginConfiguration
 
     public int AutomaticStartMinuteLocal { get; set; }
 
+    public EAlliedSociety? AutomaticStartSocietyId { get; set; }
+
     public DateOnly? LastAutomaticStartDate { get; set; }
 
     public Dictionary<string, CharacterAchievementCache> AchievementCacheByCharacter { get; set; } = new(StringComparer.Ordinal);
